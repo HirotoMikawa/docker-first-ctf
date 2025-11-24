@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import docker
@@ -6,6 +6,7 @@ import time
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from app.dependencies import get_current_user
 
 # --- Configuration ---
 app = FastAPI(title="Project Sol API")
@@ -42,13 +43,19 @@ def health_check():
 
 @app.post("/api/containers/start", response_model=MissionStartResponse)
 @limiter.limit("5/minute") # Rate Limit: 5回/分
-def start_mission_container(request: Request):
+def start_mission_container(
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
     """
     [Atomic Startup Strategy]
     1. コンテナ起動 (Port 0 -> Random)
     2. Inspectでポート特定
     3. 成功なら情報を返す / 失敗なら完全削除
+    
+    Requires: Authentication (JWT Bearer Token)
     """
+    user_id = current_user["id"]
     container = None
     try:
         # 1. Port 0でコンテナ起動 (テスト用に軽量なNginxを使用)
@@ -84,7 +91,7 @@ def start_mission_container(request: Request):
 
         # TODO: ここでDBに {user_id, container_id, port, start_time} を保存する
         
-        print(f"[SUCCESS] Container {container.short_id} started on port {assigned_port}")
+        print(f"[SUCCESS] Container {container.short_id} started on port {assigned_port} for user {user_id}")
 
         return {
             "status": "success",

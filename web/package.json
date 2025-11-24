@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -H 0.0.0.0",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
@@ -18,7 +18,9 @@
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "tailwind-merge": "^2.4.0",
-    "lucide-react": "^0.400.0"
+    "lucide-react": "^0.400.0",
+    "@supabase/supabase-js": "^2.39.3",
+    "@supabase/ssr": "^0.1.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

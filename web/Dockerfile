@@ -14,6 +14,12 @@ COPY . .
 # Expose port
 EXPOSE 3000
 
+# Set environment variable for Next.js
+ENV NODE_ENV=development
+
 # Run development server
+# -H 0.0.0.0 で全インターフェースにバインド（コンテナ外からアクセス可能に）
 CMD ["npm", "run", "dev"]
+
+
 

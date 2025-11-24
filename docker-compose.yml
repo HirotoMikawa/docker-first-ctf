@@ -54,6 +54,9 @@ services:
     container_name: ctf_frontend
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL:-}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
+      - NODE_ENV=development
     ports:
       - "3000:3000"
     volumes:
@@ -74,4 +77,6 @@ networks:
 
 volumes:
   postgres_data:
+
+
 

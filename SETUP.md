@@ -158,3 +158,5 @@ ls -l /var/run/docker.sock
 
 5 requests/minute の制限に達した場合、1分待ってから再試行してください。
 
+
+
