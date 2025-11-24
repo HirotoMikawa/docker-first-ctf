@@ -60,21 +60,29 @@ async def get_current_user(
     token = credentials.credentials
     
     try:
-        # SupabaseのJWT Secretを取得
-        # 注意: 実際の運用では、Supabaseの公開鍵を使って検証することを推奨
-        # ここでは簡易的に、Supabase APIを使ってユーザー情報を取得
+        # 環境変数のチェック
         supabase_url = os.getenv("SUPABASE_URL")
+        supabase_anon_key = os.getenv("SUPABASE_ANON_KEY")
+        
         if not supabase_url:
+            print("[ERROR] SUPABASE_URL environment variable is not set")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Supabase configuration missing"
+                detail="Server configuration error: SUPABASE_URL is not set. Please contact administrator."
+            )
+        
+        if not supabase_anon_key:
+            print("[ERROR] SUPABASE_ANON_KEY environment variable is not set")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Server configuration error: SUPABASE_ANON_KEY is not set. Please contact administrator."
             )
         
         # Supabase REST APIを使ってユーザー情報を取得
         # この方法は、JWTトークンが有効な場合にユーザー情報を返す
         headers = {
             "Authorization": f"Bearer {token}",
-            "apikey": os.getenv("SUPABASE_ANON_KEY", ""),
+            "apikey": supabase_anon_key,
         }
         
         response = requests.get(
@@ -84,9 +92,16 @@ async def get_current_user(
         )
         
         if response.status_code != 200:
+            error_detail = "Invalid authentication credentials"
+            try:
+                error_data = response.json()
+                error_detail = error_data.get("message", error_detail)
+            except:
+                pass
+            
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication credentials",
+                detail=error_detail,
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
@@ -98,16 +113,22 @@ async def get_current_user(
             "user_metadata": user_data.get("user_metadata", {}),
         }
     
+    except HTTPException:
+        # HTTPExceptionはそのまま再発生
+        raise
     except requests.RequestException as e:
+        print(f"[ERROR] Request exception during authentication: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Authentication failed: {str(e)}",
+            detail=f"Authentication service unavailable: {str(e)}",
             headers={"WWW-Authenticate": "Bearer"},
         )
     except Exception as e:
+        print(f"[ERROR] Unexpected error during authentication: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Authentication failed: {str(e)}",
-            headers={"WWW-Authenticate": "Bearer"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal server error during authentication: {str(e)}",
         )
 

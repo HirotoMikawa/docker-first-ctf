@@ -1,7 +1,5 @@
-version: '3.8'
-
 services:
-  # PostgreSQL Database (Supabase compatible)
+  # Database (Supabase Compatible)
   postgres:
     image: postgres:15-alpine
     container_name: ctf_postgres
@@ -30,12 +28,14 @@ services:
     environment:
       - API_HOST=0.0.0.0
       - API_PORT=8000
-      - SUPABASE_URL=${SUPABASE_URL:-}
-      - SUPABASE_KEY=${SUPABASE_KEY:-}
-      - DOCKER_HOST=unix:///var/run/docker.sock
-      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - SECRET_KEY=${SECRET_KEY:-super-secret-key}
+      # Supabase Config
+      - SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+      - SUPABASE_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      - SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
       - ./api:/app
     ports:
       - "8000:8000"
@@ -46,7 +46,7 @@ services:
       - ctf_backend
     restart: unless-stopped
 
-  # Frontend (Development)
+  # Frontend (Next.js)
   frontend:
     build:
       context: ./web
@@ -54,15 +54,14 @@ services:
     container_name: ctf_frontend
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
-      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL:-}
-      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
       - NODE_ENV=development
     ports:
       - "3000:3000"
     volumes:
       - ./web:/app
       - /app/node_modules
-      - /app/.next
     depends_on:
       - api
     networks:
@@ -72,11 +71,6 @@ services:
 networks:
   ctf_backend:
     driver: bridge
-  # Note: ctf_net (internal network) will be created by backend on startup
-  # This is for user containers isolation
 
 volumes:
   postgres_data:
-
-
-
