@@ -132,6 +132,34 @@ class ChallengeInfo(BaseModel):
     class Config:
         populate_by_name = True
 
+class FlagSubmitRequest(BaseModel):
+    challenge_id: str
+    flag_submission: str
+    
+    @field_validator('challenge_id')
+    @classmethod
+    def validate_challenge_id(cls, v):
+        """challenge_idのバリデーション"""
+        if not v or (isinstance(v, str) and v.strip() == ""):
+            raise ValueError("challenge_id is required and cannot be empty")
+        return str(v).strip()
+    
+    @field_validator('flag_submission')
+    @classmethod
+    def validate_flag_submission(cls, v):
+        """flag_submissionのバリデーション"""
+        if not v or (isinstance(v, str) and v.strip() == ""):
+            raise ValueError("flag_submission is required and cannot be empty")
+        return str(v).strip()
+    
+    class Config:
+        populate_by_name = True
+
+class FlagSubmitResponse(BaseModel):
+    correct: bool  # フロントエンドとの互換性のためcorrectに統一
+    message: str
+    challenge_id: str
+
 # --- Routes ---
 
 @app.get("/health")
@@ -166,9 +194,9 @@ def start_mission_container(
     container = None
     
     try:
-        # 1. Supabaseから問題情報を取得
+        # 1. Supabaseから問題情報を取得（flag_answerを含む）
         supabase = get_supabase_db_client()
-        challenge_response = supabase.table("challenges").select("*").eq("id", challenge_id).execute()
+        challenge_response = supabase.table("challenges").select("id, image_name, internal_port, title, flag_answer").eq("id", challenge_id).execute()
         
         if not challenge_response.data or len(challenge_response.data) == 0:
             raise HTTPException(status_code=404, detail=f"Challenge '{challenge_id}' not found")
@@ -177,9 +205,13 @@ def start_mission_container(
         image_name = challenge.get("image_name")
         internal_port = challenge.get("internal_port", 8000)  # デフォルト8000
         challenge_title = challenge.get("title", challenge_id)
+        flag_answer = challenge.get("flag_answer")  # DBからflag_answerを取得
         
         if not image_name:
             raise HTTPException(status_code=500, detail="Challenge image_name not configured")
+        
+        if not flag_answer:
+            raise HTTPException(status_code=500, detail="Challenge flag_answer not configured")
         
         # ポートマッピングの動的解決
         # internal_portが設定されていればそれを使用、なければデフォルト値
@@ -205,7 +237,7 @@ def start_mission_container(
                 nano_cpus=500000000,  # 0.5 CPU
                 network="ctf_net",  # 隔離ネットワーク
                 environment={
-                    "CTF_FLAG": challenge.get("flag", "SolCTF{default_flag}")
+                    "CTF_FLAG": flag_answer  # DBから取得したflag_answerをコンテナに注入
                 }
             )
             print(f"[INFO] Container {container.short_id} started successfully")
@@ -349,6 +381,99 @@ def list_challenges(
         raise
     except Exception as e:
         error_msg = f"Failed to fetch challenges: {str(e)}"
+        print(f"[ERROR] {error_msg}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=error_msg)
+
+@app.post("/api/challenges/submit", response_model=FlagSubmitResponse)
+@limiter.limit("10/minute")  # Rate Limit: 10回/分（ブルートフォース対策）
+def submit_flag(
+    flag_request: FlagSubmitRequest,
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Flag提出と判定API
+    
+    Requires: Authentication (JWT Bearer Token)
+    Rate Limit: 5 requests/minute
+    
+    Process:
+    1. Supabaseのchallengesテーブルから正解Flagを取得
+    2. 提出されたFlagと照合（直接比較、ハッシュ化なし）
+    3. submission_logsテーブルに記録
+    4. 結果を返す
+    """
+    user_id = current_user["id"]
+    challenge_id = flag_request.challenge_id
+    submitted_flag = flag_request.flag_submission
+    
+    print(f"[INFO] Flag submission: challenge_id={challenge_id}, user_id={user_id}")
+    
+    try:
+        supabase = get_supabase_db_client()
+        
+        # 1. チャレンジ情報を取得（正解Flagを含む）
+        # flag_answerカラムのみを取得（flagカラムは存在しないため削除）
+        challenge_response = supabase.table("challenges").select("id, flag_answer").eq("id", challenge_id).execute()
+        
+        if not challenge_response.data or len(challenge_response.data) == 0:
+            raise HTTPException(status_code=404, detail=f"Challenge '{challenge_id}' not found")
+        
+        challenge = challenge_response.data[0]
+        
+        # 2. 正解Flagを取得（flag_answerカラムから取得）
+        correct_flag = challenge.get("flag_answer")
+        
+        if not correct_flag:
+            raise HTTPException(
+                status_code=500,
+                detail="Correct flag not configured for this challenge (flag_answer column missing or empty)"
+            )
+        
+        print(f"[INFO] Found correct flag for challenge_id={challenge_id}")
+        
+        # 3. Flag照合（直接比較、大文字小文字を区別）
+        is_correct = (submitted_flag.strip() == correct_flag.strip())
+        
+        # 4. IPアドレスを取得
+        client_ip = get_remote_address(request)
+        
+        # 5. submission_logsテーブルに記録
+        try:
+            log_data = {
+                "user_id": user_id,
+                "challenge_id": challenge_id,
+                "submitted_flag": submitted_flag,  # 実際の運用ではハッシュ化推奨だが今回は生データ
+                "is_correct": is_correct,
+                "ip_address": client_ip
+            }
+            supabase.table("submission_logs").insert(log_data).execute()
+            print(f"[INFO] Submission log recorded: is_correct={is_correct}")
+        except Exception as log_error:
+            # submission_logsテーブルが存在しない場合でも処理を続行
+            print(f"[WARNING] Failed to log submission: {str(log_error)}")
+            print("[INFO] Continuing without logging (table may not exist)")
+        
+        # 6. 結果を返す
+        if is_correct:
+            message = "MISSION ACCOMPLISHED. WELL DONE AGENT."
+            print(f"[SUCCESS] User {user_id} submitted correct flag for challenge {challenge_id}")
+        else:
+            message = "INVALID FLAG. ACCESS DENIED."
+            print(f"[INFO] User {user_id} submitted incorrect flag for challenge {challenge_id}")
+        
+        return {
+            "correct": is_correct,  # フロントエンドとの互換性のためcorrectに統一
+            "message": message,
+            "challenge_id": challenge_id
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_msg = f"Flag submission failed: {str(e)}"
         print(f"[ERROR] {error_msg}")
         import traceback
         traceback.print_exc()

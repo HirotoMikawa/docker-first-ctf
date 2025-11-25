@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Terminal, Shield, Power, Loader2, AlertCircle, LogOut, User, Target } from 'lucide-react';
+import { Terminal, Shield, Power, Loader2, AlertCircle, LogOut, User, Target, Flag, CheckCircle2, XCircle } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -24,6 +24,12 @@ interface MissionData {
   url: string;
   message: string;
   challenge_name?: string;
+  challenge_id?: string; // Flag提出時に必要
+}
+
+interface SubmitResult {
+  correct: boolean;
+  message: string;
 }
 
 export default function Home() {
@@ -34,14 +40,23 @@ export default function Home() {
   const [missionData, setMissionData] = useState<MissionData | null>(null);
   const [error, setError] = useState<string | null>(null);
   
+  // Flag提出用のState
+  const [flagInput, setFlagInput] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitResult, setSubmitResult] = useState<SubmitResult | null>(null);
+  
   // エラーを安全に設定するヘルパー関数
   const setErrorSafe = (err: any) => {
+    // nullまたはundefinedが渡された場合は、エラーをクリアする
+    if (err === null || err === undefined) {
+      setError(null);
+      return;
+    }
+    
     let errorMessage: string = 'An error occurred';
     
     try {
-      if (err === null || err === undefined) {
-        errorMessage = 'Unknown error';
-      } else if (typeof err === 'string') {
+      if (typeof err === 'string') {
         errorMessage = err;
       } else if (err instanceof Error) {
         errorMessage = err.message || String(err);
@@ -214,11 +229,21 @@ export default function Home() {
   };
 
   const startMission = async (challengeId: string) => {
+    console.log("Starting mission with ID:", challengeId);
+    console.log("Challenge ID type:", typeof challengeId);
+    console.log("Challenge ID value:", challengeId);
+    
     setIsLoading(true);
     setLoadingChallengeId(challengeId);
     setError(null);
     
     try {
+      // challengeIdの検証（最初にチェック）
+      if (!challengeId || challengeId.trim() === '') {
+        console.error('Challenge ID validation failed:', challengeId);
+        throw new Error('Challenge ID is required');
+      }
+      
       // JWTトークンを取得
       const { data: { session } } = await supabase.auth.getSession();
       
@@ -226,14 +251,9 @@ export default function Home() {
         throw new Error("Authentication required. Please login.");
       }
       
-      // challengeIdの検証
-      if (!challengeId || challengeId.trim() === '') {
-        throw new Error('Challenge ID is required');
-      }
-      
+      // リクエストボディを構築（キー名は必ず challenge_id）
       const requestBody = { challenge_id: String(challengeId).trim() };
       console.log('Sending request body:', requestBody);
-      console.log('Challenge ID:', challengeId, 'Type:', typeof challengeId);
       console.log('Stringified body:', JSON.stringify(requestBody));
       
       const res = await fetch('http://localhost:8000/api/containers/start', {
@@ -283,7 +303,11 @@ export default function Home() {
         throw new Error('Invalid response from server');
       }
       
-      setMissionData(data);
+      // challenge_idを追加して保存（Flag提出時に必要）
+      setMissionData({ ...data, challenge_id: challengeId });
+      // Flag提出関連のStateをリセット
+      setFlagInput('');
+      setSubmitResult(null);
     } catch (err: any) {
       console.error('Mission start error:', err);
       console.error('Error type:', typeof err);
@@ -329,6 +353,71 @@ export default function Home() {
     } finally {
       setIsLoading(false);
       setLoadingChallengeId(null);
+    }
+  };
+
+  // Flag提出機能
+  const submitFlag = async () => {
+    if (!missionData || !flagInput || !missionData.challenge_id) {
+      setErrorSafe('Mission is not active or challenge ID is missing');
+      return;
+    }
+
+    // エラーをクリア（前のエラーを消去）
+    setError(null);
+    setIsSubmitting(true);
+    setSubmitResult(null);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        throw new Error("Session expired. Please login again.");
+      }
+
+      const res = await fetch('http://localhost:8000/api/challenges/submit', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          challenge_id: missionData.challenge_id,
+          flag_submission: flagInput.trim(),
+        }),
+      });
+
+      // レスポンスが成功（200 OK）の場合、エラーを設定しない
+      if (res.ok) {
+        const result = await res.json();
+        setSubmitResult(result);
+        // 成功時はエラーを設定しない（setErrorは呼ばない）
+      } else {
+        // レスポンスがエラーの場合のみ、エラーを設定
+        const errorText = await res.text();
+        let errorMessage = "Submission failed";
+        try {
+          const errorJson = JSON.parse(errorText);
+          errorMessage = errorJson.detail || errorMessage;
+        } catch {
+          errorMessage = errorText || errorMessage;
+        }
+        setErrorSafe(errorMessage);
+        setSubmitResult({
+          correct: false,
+          message: `ERROR: ${errorMessage}`
+        });
+      }
+    } catch (err: any) {
+      // ネットワークエラーなどの例外の場合のみ、エラーを設定
+      console.error('Flag submission error:', err);
+      setErrorSafe(err.message || 'Submission failed');
+      setSubmitResult({
+        correct: false,
+        message: `ERROR: ${err.message || 'Submission failed'}`
+      });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -470,8 +559,67 @@ export default function Home() {
                 </div>
               </div>
 
+              {/* Flag Submission Form */}
+              <div className="space-y-3 border-t border-zinc-800 pt-4">
+                <div className="flex items-center gap-2 text-zinc-400 text-xs uppercase tracking-widest">
+                  <Flag className="w-4 h-4" />
+                  <span>Submit Flag</span>
+                </div>
+                <div className="flex gap-2">
+                  <div className="relative flex-grow">
+                    <input
+                      type="text"
+                      value={flagInput}
+                      onChange={(e) => setFlagInput(e.target.value)}
+                      placeholder="SolCTF{...}"
+                      className="w-full bg-zinc-950 border border-zinc-700 rounded px-4 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all font-mono"
+                      disabled={isSubmitting}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !isSubmitting && flagInput.trim()) {
+                          submitFlag();
+                        }
+                      }}
+                    />
+                  </div>
+                  <Button
+                    onClick={submitFlag}
+                    disabled={isSubmitting || !flagInput.trim()}
+                    className="px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        VERIFYING...
+                      </>
+                    ) : (
+                      'SUBMIT'
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Submission Result */}
+              {submitResult && (
+                <div className={`p-4 rounded border flex items-center gap-3 animate-in slide-in-from-top-2 ${
+                  submitResult.correct
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                    : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+                }`}>
+                  {submitResult.correct ? (
+                    <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
+                  ) : (
+                    <XCircle className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  <span className="text-sm font-bold tracking-wide">{submitResult.message}</span>
+                </div>
+              )}
+
               <Button
-                onClick={() => setMissionData(null)}
+                onClick={() => {
+                  setMissionData(null);
+                  setFlagInput('');
+                  setSubmitResult(null);
+                }}
                 variant="outline"
                 className="w-full border-zinc-700 hover:bg-zinc-800"
               >
@@ -527,12 +675,19 @@ export default function Home() {
                         onClick={() => {
                           console.log('Button clicked, challenge:', challenge);
                           console.log('challenge.challenge_id:', challenge.challenge_id);
-                          if (!challenge.challenge_id) {
+                          console.log('challenge object keys:', Object.keys(challenge));
+                          
+                          // challenge_idの確認（複数の方法で試行）
+                          const idToUse = challenge.challenge_id || challenge.id;
+                          
+                          if (!idToUse) {
                             console.error('challenge_id is missing!', challenge);
                             setErrorSafe('Challenge ID is missing. Please refresh the page.');
                             return;
                           }
-                          startMission(challenge.challenge_id);
+                          
+                          console.log('Calling startMission with ID:', idToUse);
+                          startMission(idToUse);
                         }}
                         disabled={isLoading}
                         className="w-full"
