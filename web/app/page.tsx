@@ -133,7 +133,8 @@ export default function Home() {
 
         console.log('Fetching challenges with token:', session.access_token.substring(0, 20) + '...');
 
-        const res = await fetch('http://localhost:8000/api/challenges', {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        const res = await fetch(`${apiUrl}/api/challenges`, {
           method: 'GET',
           headers: {
             'Authorization': `Bearer ${session.access_token}`,
@@ -256,7 +257,8 @@ export default function Home() {
       console.log('Sending request body:', requestBody);
       console.log('Stringified body:', JSON.stringify(requestBody));
       
-      const res = await fetch('http://localhost:8000/api/containers/start', {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${apiUrl}/api/containers/start`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${session.access_token}`,
@@ -375,7 +377,8 @@ export default function Home() {
         throw new Error("Session expired. Please login again.");
       }
 
-      const res = await fetch('http://localhost:8000/api/challenges/submit', {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${apiUrl}/api/challenges/submit`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

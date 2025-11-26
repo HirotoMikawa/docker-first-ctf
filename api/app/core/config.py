@@ -37,8 +37,8 @@ class Settings(BaseSettings):
     CONTAINER_NETWORK: str = "ctf_net"
     CONTAINER_INTERNAL_PORT: int = 8000
     
-    # CORS
-    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:3001"]
+    # CORS (環境変数 CORS_ORIGINS でカンマ区切りで指定、未設定時はワイルドカード)
+    CORS_ORIGINS: str = "*"
     
     class Config:
         env_file = ".env"

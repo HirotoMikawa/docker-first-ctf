@@ -50,9 +50,16 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     )
 
 # CORS (Frontendからのアクセス許可)
+# 環境変数 CORS_ORIGINS から読み取る（カンマ区切り、未設定時はワイルドカード）
+cors_origins_str = os.getenv("CORS_ORIGINS", "*")
+if cors_origins_str == "*":
+    cors_origins = ["*"]
+else:
+    cors_origins = [origin.strip() for origin in cors_origins_str.split(",") if origin.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -278,11 +285,15 @@ def start_mission_container(
         
         print(f"[SUCCESS] Container {container.short_id} started on port {assigned_port} for user {user_id} (challenge: {challenge_id})")
 
+        # コンテナURLのホスト名を環境変数から取得（未設定時はlocalhost）
+        container_host = os.getenv("CONTAINER_HOST", "localhost")
+        container_url = f"http://{container_host}:{assigned_port}"
+
         return {
             "status": "success",
             "container_id": container.short_id,
             "port": int(assigned_port),
-            "url": f"http://localhost:{assigned_port}",
+            "url": container_url,
             "message": "MISSION ENVIRONMENT DEPLOYED.",
             "challenge_name": challenge_title
         }
