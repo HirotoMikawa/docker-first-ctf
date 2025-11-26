@@ -35,6 +35,8 @@ services:
       - SUPABASE_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
       - SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
       - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      # Container Host (for generated container URLs)
+      - CONTAINER_HOST=${CONTAINER_HOST}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./api:/app
