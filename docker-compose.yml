@@ -13,6 +13,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - ctf_backend
+      - ctf_net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -44,6 +45,7 @@ services:
         condition: service_healthy
     networks:
       - ctf_backend
+      - ctf_net
     restart: unless-stopped
 
   # Frontend (Next.js)
@@ -53,7 +55,7 @@ services:
       dockerfile: Dockerfile
     container_name: ctf_frontend
     environment:
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
       - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
       - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
       - NODE_ENV=development
@@ -66,11 +68,14 @@ services:
       - api
     networks:
       - ctf_backend
+      - ctf_net
     restart: unless-stopped
 
 networks:
   ctf_backend:
     driver: bridge
+  ctf_net:
+    external: true
 
 volumes:
   postgres_data:

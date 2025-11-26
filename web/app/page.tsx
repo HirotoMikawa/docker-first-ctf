@@ -133,7 +133,10 @@ export default function Home() {
 
         console.log('Fetching challenges with token:', session.access_token.substring(0, 20) + '...');
 
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+        if (!apiUrl) {
+          throw new Error('NEXT_PUBLIC_API_URL environment variable is not set');
+        }
         const res = await fetch(`${apiUrl}/api/challenges`, {
           method: 'GET',
           headers: {
@@ -257,7 +260,10 @@ export default function Home() {
       console.log('Sending request body:', requestBody);
       console.log('Stringified body:', JSON.stringify(requestBody));
       
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      if (!apiUrl) {
+        throw new Error('NEXT_PUBLIC_API_URL environment variable is not set');
+      }
       const res = await fetch(`${apiUrl}/api/containers/start`, {
         method: 'POST',
         headers: {
@@ -377,7 +383,10 @@ export default function Home() {
         throw new Error("Session expired. Please login again.");
       }
 
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      if (!apiUrl) {
+        throw new Error('NEXT_PUBLIC_API_URL environment variable is not set');
+      }
       const res = await fetch(`${apiUrl}/api/challenges/submit`, {
         method: 'POST',
         headers: {
