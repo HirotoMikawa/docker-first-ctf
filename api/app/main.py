@@ -259,9 +259,10 @@ def start_mission_container(
                 detail=f"Docker API error: {str(api_error)}"
             )
         
-        # 3. ポート確認 (最大5回リトライ、1秒間隔)
+        # 3. ポート確認 (最大30回リトライ、1秒間隔 = 約30秒待機)
+        # 低スペック環境（t3.micro等）でも起動完了まで十分に待てるように
         assigned_port = None
-        max_retries = 5
+        max_retries = 30
         port_key = f'{internal_port}/tcp'
         
         for attempt in range(max_retries):
