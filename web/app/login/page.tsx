@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Shield, Mail, Lock, Github, Loader2, AlertCircle } from 'lucide-react';
+import { Shield, Mail, Lock, Loader2, AlertCircle } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,25 +15,6 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-
-  const handleGitHubLogin = async () => {
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'github',
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
-        },
-      });
-      
-      if (error) throw error;
-    } catch (err: any) {
-      setError(err.message || 'GitHubログインに失敗しました');
-      setIsLoading(false);
-    }
-  };
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,36 +71,6 @@ export default function LoginPage() {
               <span className="text-sm font-bold">{error}</span>
             </div>
           )}
-
-          {/* GitHub Login */}
-          <Button
-            onClick={handleGitHubLogin}
-            disabled={isLoading}
-            className="w-full bg-zinc-800 hover:bg-zinc-700 text-zinc-100 border border-zinc-700"
-            variant="outline"
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                CONNECTING...
-              </>
-            ) : (
-              <>
-                <Github className="w-4 h-4 mr-2" />
-                SIGN IN WITH GITHUB
-              </>
-            )}
-          </Button>
-
-          {/* Divider */}
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t border-zinc-800" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-zinc-900 px-2 text-zinc-500">OR</span>
-            </div>
-          </div>
 
           {/* Email Login Form */}
           <form onSubmit={handleEmailLogin} className="space-y-4">
