@@ -1,0 +1,79 @@
+Project Sol: Migration Status Report (v5.0c -> v10.2)
+
+1. Executive Summary
+
+本プロジェクトは、プロトタイプ（Ver 5.0c）から本番運用仕様（Ver 10.2）への移行を実施中である。
+バックエンドおよびインフラストラクチャの修正は完了し、セキュリティ基準（Red-Team Standards）およびコスト管理（Cost Control）の実装が適用された。
+
+2. Implemented Changes (Backend & Infra)
+
+A. Infrastructure (docker-compose.yml)
+
+Resource Limits: APIサービス自体および生成コンテナに対する制限を追加。
+
+CPU: 0.5 / 1.0
+
+Memory: 128m / 512m
+
+Network: ctf_net (Internal) の定義を確認。
+
+B. Application Logic (api/app/)
+
+main.py:
+
+/health エンドポイントを Ver 10.2 仕様（System Version, Dependencies）に更新。
+
+コンテナ起動ロジックに user="ctfuser", pids_limit=50, security_opt を追加。
+
+CONTAINER_HOST 環境変数のパース処理（http除去等）を追加。
+
+config.py:
+
+新たな環境変数 CONTAINER_PIDS_LIMIT 等を追加。
+
+docker_manager.py:
+
+Atomic Startup Strategy（起動失敗時のロールバック処理）の実装を確認。
+
+3. Remaining Tasks (Frontend)
+
+重要: 現在の Frontend は localhost を向いている可能性が高いため、以下の修正が必要である。
+
+A. Environment Variables (web/.env.local or Production Env)
+
+NEXT_PUBLIC_API_URL がハードコードされていないか確認。
+
+本番デプロイ時は、サーバーのパブリックIPまたはドメインを指すように設定が必要。
+
+# Development
+NEXT_PUBLIC_API_URL=http://localhost:8000
+
+# Production (Server)
+NEXT_PUBLIC_API_URL=http://<SERVER_IP>:8000
+
+
+B. API Client Configuration
+
+fetch や axios の設定が、上記の環境変数を動的に読み込んでいるか確認する。
+
+4. Verification Checklist (Post-Deployment)
+
+デプロイ完了後、以下の順序で動作確認を行うこと。
+
+Health Check:
+
+curl http://<SERVER_IP>:8000/health
+# Expect: {"status": "ok", "system_version": "10.2", ...}
+
+
+Environment Check:
+
+docker inspect <api_container_id> | grep PIDS_LIMIT
+# Expect: 50
+
+
+Frontend Connection:
+ブラウザで http://<SERVER_IP>:3000 にアクセスし、Mission Start ボタンを押下してエラーが出ないことを確認（CORSエラーが出ていないかConsoleを確認）。
+
+Status: BACKEND_READY / FRONTEND_PENDING
+Last Updated: Ver 10.2 Migration

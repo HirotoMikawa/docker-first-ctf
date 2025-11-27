@@ -85,6 +85,9 @@ class DockerManager:
         
         try:
             # Atomic startup: Port 0 = Docker assigns available port
+            # CPU制限をnano_cpusに変換（0.5 -> 500000000）
+            nano_cpus = int(float(settings.CONTAINER_CPU_LIMIT) * 1000000000)
+            
             container = self.client.containers.run(
                 image=image,
                 name=f"ctf_{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}",
@@ -92,9 +95,13 @@ class DockerManager:
                 network=settings.CONTAINER_NETWORK,
                 detach=True,
                 remove=False,
+                # Resource Limits (Ver 10.2 Security Standards)
                 mem_limit=settings.CONTAINER_MEMORY_LIMIT,
-                cpu_quota=int(float(settings.CONTAINER_CPU_LIMIT) * 100000),
-                cpu_period=100000,
+                nano_cpus=nano_cpus,
+                pids_limit=settings.CONTAINER_PIDS_LIMIT,
+                # Security Constraints (PROJECT_MASTER.md 5.A準拠)
+                user="ctfuser",  # UID >= 1000, Root prohibited
+                security_opt=["no-new-privileges"],  # Privilege escalation prevention
                 environment={
                     "CTF_FLAG": flag
                 },

@@ -37,6 +37,10 @@ services:
       - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
       # Container Host (for generated container URLs)
       - CONTAINER_HOST=${CONTAINER_HOST}
+      # Container Resource Limits (Ver 10.2)
+      - CONTAINER_CPU_LIMIT=${CONTAINER_CPU_LIMIT:-0.5}
+      - CONTAINER_MEMORY_LIMIT=${CONTAINER_MEMORY_LIMIT:-128m}
+      - CONTAINER_PIDS_LIMIT=${CONTAINER_PIDS_LIMIT:-50}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./api:/app
@@ -49,6 +53,15 @@ services:
       - ctf_backend
       - ctf_net
     restart: unless-stopped
+    # Resource limits for API service itself (cost control)
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512m
+        reservations:
+          cpus: '0.5'
+          memory: 256m
 
   # Frontend (Next.js)
   frontend:

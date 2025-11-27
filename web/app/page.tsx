@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Terminal, Shield, Power, Loader2, AlertCircle, LogOut, User, Target, Flag, CheckCircle2, XCircle } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
+import { buildApiUrl } from '@/utils/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
@@ -133,11 +134,8 @@ export default function Home() {
 
         console.log('Fetching challenges with token:', session.access_token.substring(0, 20) + '...');
 
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-        if (!apiUrl) {
-          throw new Error('NEXT_PUBLIC_API_URL environment variable is not set');
-        }
-        const res = await fetch(`${apiUrl}/api/challenges`, {
+        const apiUrl = buildApiUrl('/api/challenges');
+        const res = await fetch(apiUrl, {
           method: 'GET',
           headers: {
             'Authorization': `Bearer ${session.access_token}`,
@@ -260,11 +258,8 @@ export default function Home() {
       console.log('Sending request body:', requestBody);
       console.log('Stringified body:', JSON.stringify(requestBody));
       
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      if (!apiUrl) {
-        throw new Error('NEXT_PUBLIC_API_URL environment variable is not set');
-      }
-      const res = await fetch(`${apiUrl}/api/containers/start`, {
+      const apiUrl = buildApiUrl('/api/containers/start');
+      const res = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${session.access_token}`,
@@ -383,11 +378,8 @@ export default function Home() {
         throw new Error("Session expired. Please login again.");
       }
 
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      if (!apiUrl) {
-        throw new Error('NEXT_PUBLIC_API_URL environment variable is not set');
-      }
-      const res = await fetch(`${apiUrl}/api/challenges/submit`, {
+      const apiUrl = buildApiUrl('/api/challenges/submit');
+      const res = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

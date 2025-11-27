@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     CONTAINER_TTL_MINUTES: int = 30
     CONTAINER_CPU_LIMIT: str = "0.5"
     CONTAINER_MEMORY_LIMIT: str = "128m"
+    CONTAINER_PIDS_LIMIT: int = 50
     CONTAINER_NETWORK: str = "ctf_net"
     CONTAINER_INTERNAL_PORT: int = 8000
     

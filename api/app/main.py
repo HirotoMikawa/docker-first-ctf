@@ -6,10 +6,12 @@ from pydantic import BaseModel, Field, field_validator
 import docker
 import time
 import os
+from datetime import datetime
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from app.dependencies import get_current_user
+from app.core.config import settings
 from supabase import create_client, Client
 from typing import Optional
 
@@ -171,8 +173,47 @@ class FlagSubmitResponse(BaseModel):
 
 @app.get("/health")
 def health_check():
-    """監視用ヘルスチェック"""
-    return {"status": "ok", "docker": "connected"}
+    """
+    監視用ヘルスチェック (Ver 10.2準拠)
+    
+    Returns:
+        {
+            "status": "ok",
+            "system_version": "10.2",
+            "dependencies": {
+                "database": "connected" | "disconnected",
+                "docker": "connected" | "disconnected"
+            },
+            "timestamp": "ISO8601_STRING"
+        }
+    """
+    # Docker接続確認
+    docker_status = "disconnected"
+    try:
+        client.ping()
+        docker_status = "connected"
+    except Exception:
+        pass
+    
+    # データベース接続確認
+    db_status = "disconnected"
+    try:
+        supabase = get_supabase_db_client()
+        # 簡単なクエリで接続確認
+        supabase.table("challenges").select("id").limit(1).execute()
+        db_status = "connected"
+    except Exception:
+        pass
+    
+    return {
+        "status": "ok",
+        "system_version": "10.2",
+        "dependencies": {
+            "database": db_status,
+            "docker": docker_status
+        },
+        "timestamp": datetime.utcnow().isoformat() + "Z"
+    }
 
 @app.post("/api/containers/start", response_model=MissionStartResponse)
 @limiter.limit("5/minute") # Rate Limit: 5回/分
@@ -234,20 +275,33 @@ def start_mission_container(
         except Exception as net_error:
             print(f"[WARNING] Network check failed: {net_error}")
         
-        # 2. Port 0でコンテナ起動（Atomic Startup Strategy）
+        # 2. Port 0でコンテナ起動（Atomic Startup Strategy - Ver 10.2準拠）
+        # 環境変数からリソース制限を取得（未設定時はデフォルト値）
+        cpu_limit = os.getenv("CONTAINER_CPU_LIMIT", settings.CONTAINER_CPU_LIMIT)
+        memory_limit = os.getenv("CONTAINER_MEMORY_LIMIT", settings.CONTAINER_MEMORY_LIMIT)
+        pids_limit = int(os.getenv("CONTAINER_PIDS_LIMIT", str(settings.CONTAINER_PIDS_LIMIT)))
+        
+        # CPU制限をnano_cpusに変換（0.5 -> 500000000）
+        nano_cpus = int(float(cpu_limit) * 1000000000)
+        
         try:
             container = client.containers.run(
                 image_name,
                 detach=True,
                 ports=port_mapping,
-                mem_limit="128m",
-                nano_cpus=500000000,  # 0.5 CPU
-                network="ctf_net",  # 隔離ネットワーク
+                # Resource Limits (Ver 10.2 Security Standards)
+                mem_limit=memory_limit,
+                nano_cpus=nano_cpus,
+                pids_limit=pids_limit,
+                # Security Constraints (PROJECT_MASTER.md 5.A準拠)
+                user="ctfuser",  # UID >= 1000, Root prohibited
+                security_opt=["no-new-privileges"],  # Privilege escalation prevention
+                network="ctf_net",  # 隔離ネットワーク（internal, no internet access）
                 environment={
                     "CTF_FLAG": flag_answer  # DBから取得したflag_answerをコンテナに注入
                 }
             )
-            print(f"[INFO] Container {container.short_id} started successfully")
+            print(f"[INFO] Container {container.short_id} started successfully (cpu={cpu_limit}, mem={memory_limit}, pids={pids_limit})")
         except docker.errors.ImageNotFound as img_error:
             raise HTTPException(
                 status_code=500,
@@ -288,7 +342,21 @@ def start_mission_container(
 
         # コンテナURLのホスト名を環境変数から取得（未設定時はlocalhost）
         container_host = os.getenv("CONTAINER_HOST", "localhost")
+        
+        # CONTAINER_HOSTがプロトコル（http:// や https://）を含む場合は除去
+        # また、末尾のスラッシュも除去
+        container_host = container_host.strip()
+        if container_host.startswith("http://"):
+            container_host = container_host[7:]
+        elif container_host.startswith("https://"):
+            container_host = container_host[8:]
+        if container_host.endswith("/"):
+            container_host = container_host[:-1]
+        
+        # URLを生成（プロトコルは常にhttp://を使用）
         container_url = f"http://{container_host}:{assigned_port}"
+        
+        print(f"[INFO] Generated container URL: {container_url}")
 
         return {
             "status": "success",
