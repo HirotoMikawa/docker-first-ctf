@@ -1,9 +1,10 @@
-# Environment
+# Environment Variables (SSOT: Keep secrets out of Git)
 .env
 .env.local
 .env*.local
+*.env
 
-# Python
+# Python Dependencies
 __pycache__/
 *.py[cod]
 *$py.class
@@ -12,26 +13,49 @@ __pycache__/
 venv/
 env/
 ENV/
+*.egg-info/
+.pytest_cache/
 
-# Node
+# Node Dependencies
 node_modules/
 .next/
 out/
 dist/
 *.log
 
-# IDE
+# Generated Assets (Project Sol Specific)
+# Exclude generated draft JSON files, but keep directory structure
+challenges/drafts/*
+!challenges/drafts/.gitkeep
+
+# IDE / Editor
 .vscode/
+.cursor/
 .idea/
 *.swp
 *.swo
+*.sublime-project
+*.sublime-workspace
 
-# OS
+# OS Files
 .DS_Store
 Thumbs.db
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
 
 # Docker
 *.pid
+docker-compose.override.yml
+
+# Build artifacts
+*.pyc
+*.pyo
+*.pyd
+.coverage
+htmlcov/
+.tox/
 
 
 

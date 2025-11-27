@@ -134,7 +134,7 @@ class ChallengeInfo(BaseModel):
     challenge_id: str  # APIレスポンスではchallenge_idとして返す
     title: str
     description: Optional[str] = None
-    difficulty: Optional[str] = None
+    difficulty: Optional[int] = None  # Changed from str to int (DB column is now integer)
     category: Optional[str] = None
     points: Optional[int] = None
     
@@ -340,12 +340,21 @@ def start_mission_container(
         
         print(f"[SUCCESS] Container {container.short_id} started on port {assigned_port} for user {user_id} (challenge: {challenge_id})")
 
-        # コンテナURLのホスト名を環境変数から取得（未設定時はlocalhost）
-        container_host = os.getenv("CONTAINER_HOST", "localhost")
+        # コンテナURLのホスト名を環境変数から取得（優先順位: CONTAINER_HOST > API_HOST > localhost）
+        # 環境非依存（ローカル/本番両対応）のURL生成ロジック
+        container_host = os.getenv("CONTAINER_HOST") or os.getenv("API_HOST") or "localhost"
+        
+        # 空文字列の場合は localhost にフォールバック
+        container_host = container_host.strip()
+        if not container_host:
+            container_host = "localhost"
+        
+        # 0.0.0.0 の場合は localhost に置換（ブラウザでアクセス可能にするため）
+        if container_host == "0.0.0.0":
+            container_host = "localhost"
         
         # CONTAINER_HOSTがプロトコル（http:// や https://）を含む場合は除去
         # また、末尾のスラッシュも除去
-        container_host = container_host.strip()
         if container_host.startswith("http://"):
             container_host = container_host[7:]
         elif container_host.startswith("https://"):

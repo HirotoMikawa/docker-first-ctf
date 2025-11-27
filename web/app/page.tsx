@@ -13,7 +13,7 @@ interface Challenge {
   challenge_id: string;
   title: string;
   description?: string;
-  difficulty?: string;
+  difficulty?: number | string; // Accept both number (from API) and string (for backward compatibility)
   category?: string;
   points?: number;
 }
@@ -425,17 +425,37 @@ export default function Home() {
     }
   };
 
-  const getDifficultyColor = (difficulty?: string) => {
-    switch (difficulty?.toLowerCase()) {
+  const getDifficultyColor = (difficulty?: number | string) => {
+    // Handle numeric difficulty (1-5)
+    if (typeof difficulty === 'number') {
+      if (difficulty <= 1) return 'text-emerald-500';
+      if (difficulty <= 2) return 'text-amber-500';
+      if (difficulty <= 3) return 'text-orange-500';
+      if (difficulty <= 4) return 'text-rose-500';
+      return 'text-rose-600'; // difficulty 5
+    }
+    
+    // Handle string difficulty (backward compatibility)
+    const difficultyStr = difficulty?.toString().toLowerCase();
+    switch (difficultyStr) {
       case 'easy':
       case 'beginner':
+      case '1':
         return 'text-emerald-500';
       case 'medium':
       case 'intermediate':
+      case '2':
         return 'text-amber-500';
       case 'hard':
       case 'advanced':
+      case '3':
+        return 'text-orange-500';
+      case 'expert':
+      case 'extreme':
+      case '4':
         return 'text-rose-500';
+      case '5':
+        return 'text-rose-600';
       default:
         return 'text-zinc-400';
     }

@@ -1,0 +1,29 @@
+{
+  "mission_id": "SOL-MSN-SQLI01",
+  "mission_version": "1.0.0",
+  "type": "SQLi",
+  "difficulty": 3,
+  "difficulty_factors": {
+    "tech": 3,
+    "read": 3,
+    "explore": 3
+  },
+  "vulnerability": {
+    "cve_id": "CVE-2024-0001",
+    "cvss": 7.5,
+    "attack_vector": "Network"
+  },
+  "environment": {
+    "image": "sol/mission-sqli01:latest",
+    "base_image": "python:3.11-slim",
+    "cost_token": 2500,
+    "expected_solve_time": "45m",
+    "tags": ["web", "linux", "sql"]
+  },
+  "narrative": {
+    "story_hook": "Target system detected at 192.168.1.100. Authentication bypass required.",
+    "tone": "combat"
+  },
+  "status": "draft"
+}
+
