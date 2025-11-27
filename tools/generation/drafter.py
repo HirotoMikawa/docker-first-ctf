@@ -46,6 +46,69 @@ ATTACK_VECTORS = ["Network", "Local", "Adjacent Network", "Physical"]
 # Common tags
 COMMON_TAGS = ["web", "linux", "sql", "rce", "xss", "auth", "crypto", "network", "os"]
 
+# Challenge categories (for diversity)
+CHALLENGE_CATEGORIES = {
+    "WEB_SQLI": {
+        "name": "SQL Injection",
+        "description": "Classic, Blind, or Time-based SQL Injection",
+        "type": "SQLi",
+        "tags": ["Web", "SQL", "Database"],
+        "file_requirements": ["app.py", "Dockerfile", "requirements.txt"]
+    },
+    "WEB_XSS": {
+        "name": "Cross-Site Scripting",
+        "description": "Stored or Reflected XSS vulnerability",
+        "type": "XSS",
+        "tags": ["Web", "XSS", "JavaScript"],
+        "file_requirements": ["app.py", "Dockerfile", "requirements.txt"]
+    },
+    "WEB_SSRF": {
+        "name": "Server-Side Request Forgery",
+        "description": "Internal port scanning or local file access",
+        "type": "SSRF",
+        "tags": ["Web", "SSRF", "Network"],
+        "file_requirements": ["app.py", "Dockerfile", "requirements.txt"]
+    },
+    "WEB_RCE": {
+        "name": "Remote Code Execution",
+        "description": "Command Injection or Code Execution",
+        "type": "RCE",
+        "tags": ["Web", "RCE", "Command"],
+        "file_requirements": ["app.py", "Dockerfile", "requirements.txt"]
+    },
+    "CRYPTO_RSA": {
+        "name": "RSA Cryptography",
+        "description": "Common Modulus, Small Exponent, or Weak Key attacks",
+        "type": "Crypto",
+        "tags": ["Crypto", "RSA", "Mathematics"],
+        "file_requirements": ["chall.py", "output.txt", "Dockerfile"]
+    },
+    "CRYPTO_CLASSIC": {
+        "name": "Classical Cryptography",
+        "description": "Caesar, Vigenere, XOR analysis, or Substitution ciphers",
+        "type": "Crypto",
+        "tags": ["Crypto", "Classical", "Encoding"],
+        "file_requirements": ["chall.py", "output.txt", "Dockerfile"]
+    },
+    "MISC_DOCKER": {
+        "name": "Docker Security",
+        "description": "Dockerfile analysis, Environment variable hunting, or Container escape",
+        "type": "Misconfig",
+        "tags": ["Docker", "Container", "Security"],
+        "file_requirements": ["Dockerfile", "docker-compose.yml", "README.md"]
+    },
+    "MISC_LINUX": {
+        "name": "Linux Privilege Escalation",
+        "description": "SUID binaries, Permission misconfig, or Path hijacking",
+        "type": "PrivEsc",
+        "tags": ["Linux", "Privilege", "System"],
+        "file_requirements": ["setup.sh", "Dockerfile", "README.md"]
+    }
+}
+
+# Visual themes
+VISUAL_THEMES = ["CORPORATE", "UNDERGROUND", "GOVERNMENT", "CYBERPUNK", "MINIMAL"]
+
 # Forbidden Words (CONTENT_PLAN.md) - 使用しない
 FORBIDDEN_WORDS = [
     "Great", "Good luck", "Happy", "Sorry", "Please", 
@@ -94,9 +157,17 @@ class MissionDrafter:
         random_suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
         return f"SOL-MSN-{random_suffix}"
     
-    def _build_system_prompt(self) -> str:
-        """Build system prompt for OpenAI API."""
-        return """あなたは、エリートCTFアーキテクト（CTF Architect）であり、フロントエンドデザイナー（Frontend Designer）です。
+    def _build_system_prompt(self, category: str = None, theme: str = None, category_info: Dict[str, Any] = None) -> str:
+        """
+        Build system prompt for OpenAI API.
+        
+        Args:
+            category: Challenge category (e.g., "WEB_SQLI")
+            theme: Visual theme (e.g., "CORPORATE")
+            category_info: Category information dictionary
+        """
+        # Base prompt
+        base_prompt = """あなたは、エリートCTFアーキテクト（CTF Architect）であり、フロントエンドデザイナー（Frontend Designer）です。
 
 あなたの任務は、Combat Modeのトーンで、以下のJSON Schemaに100%準拠したCTF問題のシナリオと設定データを作成することです。
 
@@ -141,6 +212,8 @@ class MissionDrafter:
     "requirements.txt": "依存パッケージ（必要な場合）",
     "flag.txt": "SolCTF{...} または flag_answer と同じ値"
   },
+  "writeup": "# 脆弱性の解説\n\n## 概要\n...\n\n## 解法手順\n...\n\n## 対策方法\n...\n\n## 学んだこと\n...",
+  "tags": ["Web", "SQL", "Beginner"],
   "status": "draft"
 }
 
@@ -271,12 +344,47 @@ class MissionDrafter:
 
 JSON形式のみを返してください。説明文やマークダウンは不要です。純粋なJSONオブジェクトのみを返してください。
 
+**[EDUCATIONAL CONTENT REQUIREMENT]**
+
+1. **writeup (必須)**: 初心者にもわかりやすい詳細な解説記事（Writeup）をMarkdown形式で生成すること。
+   - **Introduction**: 脆弱性とは何か？（例: "SQL Injectionとは何か？"）
+   - **Methodology**: この問題を解くためのステップバイステップガイド
+   - **Mitigation**: 実際のコードでこの脆弱性を修正する方法
+   - **Key Takeaways**: ユーザーが学んだことを箇条書きでまとめる
+   - 例: `"writeup": "# SQL Injection Explained\n\n## What is it?...\n\n## Solution...\n\n## Mitigation...\n\n## Key Takeaways..."`
+
+2. **tags (必須)**: 問題の種類や難易度を表すタグの配列を生成すること。
+   - 例: `["Web", "SQL", "Beginner"]`, `["Network", "RCE", "Advanced"]`
+   - カテゴリ（Web, Network, Crypto等）、脆弱性タイプ（SQL, RCE, SSRF等）、難易度（Beginner, Intermediate, Advanced等）を含めること
+   - 2-4個のタグを推奨
+
+**[SOLVER SCRIPT REQUIREMENT]**
+
+You MUST also generate a solver script (Python) that demonstrates how to solve this challenge.
+- The solver script should be included in the `metadata` field as `solver_script`.
+- Format: `"metadata": {{ "solver_script": "# Python solver script\\nimport ...\\n# Solution code here" }}`
+- This is for internal validation and quality assurance.
+
 **重要**: 
 - JSONには必ず `"flag_answer": "SolCTF{...}"` を含めること。
-- JSONには必ず `"files"` オブジェクトを含め、実際に動作するアプリケーションコードを生成すること。"""
+- JSONには必ず `"files"` オブジェクトを含め、実際に動作するアプリケーションコードを生成すること。
+- JSONには必ず `"writeup"` フィールドを含め、初心者にもわかりやすい解説記事を生成すること。
+- JSONには必ず `"tags"` フィールドを含め、問題の種類や難易度を表すタグの配列を生成すること。
+- JSONには必ず `"metadata"` フィールドに `"solver_script"` を含め、解法スクリプトを生成すること。"""
+        
+        return base_prompt
     
-    def _build_user_prompt(self, difficulty: Optional[int] = None, mission_type: Optional[str] = None) -> str:
-        """Build user prompt for OpenAI API."""
+    def _build_user_prompt(self, difficulty: Optional[int] = None, mission_type: Optional[str] = None, category: Optional[str] = None, theme: Optional[str] = None, category_info: Optional[Dict[str, Any]] = None) -> str:
+        """
+        Build user prompt for OpenAI API.
+        
+        Args:
+            difficulty: Target difficulty (1-5)
+            mission_type: Mission type
+            category: Challenge category
+            theme: Visual theme
+            category_info: Category information dictionary
+        """
         if difficulty is None:
             difficulty = random.randint(1, 5)
         
@@ -292,19 +400,21 @@ JSON形式のみを返してください。説明文やマークダウンは不�
             5: "最上級者向け（複数段階の攻撃や難読化されたコード）"
         }
         
-        # Type description
-        type_descriptions = {
-            "RCE": "Remote Code Execution（リモートコード実行）",
-            "SQLi": "SQL Injection（SQLインジェクション）",
-            "SSRF": "Server-Side Request Forgery（サーバーサイドリクエスト偽造）",
-            "XXE": "XML External Entity（XML外部実体参照）",
-            "IDOR": "Insecure Direct Object Reference（不適切な直接オブジェクト参照）",
-            "PrivEsc": "Privilege Escalation（権限昇格）",
-            "LogicError": "Logic Error（ロジックエラー）",
-            "Misconfig": "Misconfiguration（設定ミス）"
-        }
+        # Category-specific prompt
+        category_prompt = ""
+        if category and category_info:
+            category_prompt = f"""
+**必須カテゴリ:** {category_info['name']} ({category})
+**カテゴリ説明:** {category_info['description']}
+**必須タグ:** {', '.join(category_info['tags'])}
+**視覚テーマ:** {theme}
+
+このカテゴリに厳密に従って問題を作成してください。他のカテゴリ（例: SQL Injection）は使用しないでください。
+"""
         
-        prompt = f"""難易度 {difficulty} ({difficulty_descriptions[difficulty]}) の {mission_type} ({type_descriptions[mission_type]}) に関するCTF問題を1つ作成してください。
+        prompt = f"""難易度 {difficulty} ({difficulty_descriptions[difficulty]}) のCTF問題を1つ作成してください。
+
+{category_prompt}
 
 以下の要件を満たしてください：
 - 難易度計算式に従って、difficulty_factorsを正しく設定すること
@@ -317,18 +427,27 @@ JSON形式のみを返してください。説明文やマークダウンは不�
   - `Dockerfile`: セキュリティ基準（非root実行、ctfuser使用）を守ったDockerfile
   - `requirements.txt`: 必要な依存パッケージ
   - `flag.txt`: flag_answerと同じ値（オプション）
+- **必ず `writeup` フィールドを含め、初心者にもわかりやすい詳細な解説記事（Markdown形式）を生成すること**
+  - Introduction: 脆弱性とは何か？
+  - Methodology: ステップバイステップの解法ガイド
+  - Mitigation: 実際のコードで修正する方法
+  - Key Takeaways: 学んだことを箇条書きでまとめる
+- **必ず `tags` フィールドを含め、問題の種類や難易度を表すタグの配列（2-4個）を生成すること**
+  - カテゴリ（Web, Network, Crypto等）、脆弱性タイプ（SQL, RCE, SSRF等）、難易度（Beginner, Intermediate, Advanced等）を含めること
 - 生成されるコードは、PROJECT_MASTER.mdのセキュリティ基準（非root実行、ポート8000のみ公開）を守ること
 - JSON形式のみで返答すること"""
         
         return prompt
     
-    def _generate_with_ai(self, difficulty: Optional[int] = None, mission_type: Optional[str] = None) -> Dict[str, Any]:
+    def _generate_with_ai(self, difficulty: Optional[int] = None, mission_type: Optional[str] = None, category: Optional[str] = None, theme: Optional[str] = None) -> Dict[str, Any]:
         """
         Generate mission JSON using OpenAI API.
         
         Args:
             difficulty: Target difficulty (1-5). If None, random.
             mission_type: Target mission type. If None, random.
+            category: Challenge category (e.g., "WEB_SQLI", "CRYPTO_RSA"). If None, random.
+            theme: Visual theme (e.g., "CORPORATE", "UNDERGROUND"). If None, random.
             
         Returns:
             Mission JSON dictionary
@@ -336,8 +455,22 @@ JSON形式のみを返してください。説明文やマークダウンは不�
         Raises:
             Exception: If API call fails
         """
-        system_prompt = self._build_system_prompt()
-        user_prompt = self._build_user_prompt(difficulty, mission_type)
+        # Select category and theme if not provided
+        if category is None or category not in CHALLENGE_CATEGORIES:
+            category = random.choice(list(CHALLENGE_CATEGORIES.keys()))
+        
+        if theme is None or theme not in VISUAL_THEMES:
+            theme = random.choice(VISUAL_THEMES)
+        
+        # Get category info
+        category_info = CHALLENGE_CATEGORIES[category]
+        
+        # Override mission_type if category specifies it
+        if mission_type is None:
+            mission_type = category_info["type"]
+        
+        system_prompt = self._build_system_prompt(category, theme, category_info)
+        user_prompt = self._build_user_prompt(difficulty, mission_type, category, theme, category_info)
         
         try:
             response = self.client.chat.completions.create(
@@ -429,6 +562,65 @@ if __name__ == '__main__':
                     "requirements.txt": "Flask==3.0.0\nWerkzeug==3.0.0",
                     "flag.txt": flag_value
                 }
+            
+            # Ensure writeup is present (generate fallback if missing)
+            if "writeup" not in mission or not mission.get("writeup"):
+                mission_type = mission.get("type", "Unknown")
+                fallback_writeup = f"""# {mission_type} Vulnerability Explained
+
+## What is it?
+
+This challenge demonstrates a {mission_type} vulnerability. Learn how to identify and exploit this security flaw.
+
+## Solution Steps
+
+1. Identify the vulnerability point
+2. Craft an exploit payload
+3. Extract the flag
+
+## Mitigation
+
+To fix this vulnerability in real code, ensure proper input validation and sanitization.
+
+## Key Takeaways
+
+- Understanding {mission_type} vulnerabilities
+- Practical exploitation techniques
+- Security best practices"""
+                mission["writeup"] = fallback_writeup
+            
+            # Ensure tags are present (generate fallback if missing)
+            if "tags" not in mission or not mission.get("tags"):
+                # Extract tags from environment if available
+                if "environment" in mission and "tags" in mission["environment"]:
+                    mission["tags"] = mission["environment"]["tags"]
+                else:
+                    # Generate default tags based on type and difficulty
+                    mission_type = mission.get("type", "Unknown")
+                    difficulty = mission.get("difficulty", 3)
+                    
+                    type_tags = {
+                        "SQLi": ["Web", "SQL"],
+                        "RCE": ["Web", "RCE"],
+                        "SSRF": ["Web", "Network"],
+                        "XXE": ["Web", "XML"],
+                        "IDOR": ["Web", "Auth"],
+                        "PrivEsc": ["Linux", "Privilege"],
+                        "LogicError": ["Web", "Logic"],
+                        "Misconfig": ["Web", "Config"]
+                    }
+                    
+                    difficulty_tags = {
+                        1: "Beginner",
+                        2: "Beginner",
+                        3: "Intermediate",
+                        4: "Advanced",
+                        5: "Expert"
+                    }
+                    
+                    tags = type_tags.get(mission_type, ["Web", "Security"])
+                    tags.append(difficulty_tags.get(difficulty, "Intermediate"))
+                    mission["tags"] = tags
             
             return mission
             
@@ -609,7 +801,7 @@ if __name__ == '__main__':
         
         return mission
     
-    def draft(self, difficulty: int = None, max_retries: int = 3, verbose: bool = False) -> Tuple[bool, str, Dict[str, Any]]:
+    def draft(self, difficulty: int = None, max_retries: int = 3, verbose: bool = False, category: Optional[str] = None, theme: Optional[str] = None) -> Tuple[bool, str, Dict[str, Any]]:
         """
         Generate and validate a mission draft using OpenAI API.
         
@@ -617,6 +809,8 @@ if __name__ == '__main__':
             difficulty: Target difficulty (1-5). If None, random.
             max_retries: Maximum retry attempts if validation fails (default: 3)
             verbose: Print validation errors for debugging
+            category: Challenge category (e.g., "WEB_SQLI", "CRYPTO_RSA"). If None, random.
+            theme: Visual theme (e.g., "CORPORATE", "UNDERGROUND"). If None, random.
             
         Returns:
             Tuple of (success, file_path, mission_data)
@@ -624,7 +818,7 @@ if __name__ == '__main__':
         for attempt in range(max_retries):
             try:
                 # Generate mission using AI
-                mission = self._generate_with_ai(difficulty)
+                mission = self._generate_with_ai(difficulty, category=category, theme=theme)
                 
                 # Validate
                 validator = MissionValidator(mission)
@@ -727,7 +921,9 @@ def main():
         success, file_path, mission = drafter.draft(
             difficulty=args.difficulty,
             max_retries=args.max_retries,
-            verbose=args.verbose
+            verbose=args.verbose,
+            category=args.category,
+            theme=args.theme
         )
         
         if success:

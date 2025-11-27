@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from ci.validator import validate_mission_file, ValidationError
 from marketing.generator import generate_from_file, ContentGenerator
-from generation.drafter import MissionDrafter
+from generation.drafter import MissionDrafter, CHALLENGE_CATEGORIES, VISUAL_THEMES
 from deploy.uploader import MissionUploader
 from builder.simple_builder import ImageBuilder
 import json
@@ -103,10 +103,14 @@ def cmd_draft(args):
     
     try:
         drafter = MissionDrafter(output_dir=output_dir, api_key=api_key)
+        category = getattr(args, 'category', None)
+        theme = getattr(args, 'theme', None)
         success, file_path, mission = drafter.draft(
             difficulty=difficulty,
             max_retries=max_retries,
-            verbose=verbose
+            verbose=verbose,
+            category=category,
+            theme=theme
         )
         
         if success:
@@ -195,6 +199,64 @@ def cmd_build(args):
         return 1
 
 
+def cmd_reset(args):
+    """Reset development environment: clear database and remove Docker containers/images."""
+    supabase_url = args.supabase_url
+    supabase_service_key = args.supabase_service_key
+    
+    # Confirmation prompt
+    print("⚠️  WARNING: This will delete ALL data from the database and remove ALL sol/mission- containers and images.")
+    print("")
+    response = input("Are you sure you want to proceed? [y/N]: ").strip().lower()
+    
+    if response != 'y':
+        print("Reset cancelled.")
+        return 0
+    
+    print("")
+    print("[RESET] Starting environment reset...")
+    print("")
+    
+    try:
+        # Step 1: Reset Database
+        print("[1/2] Resetting database...")
+        uploader = MissionUploader(
+            supabase_url=supabase_url,
+            supabase_service_key=supabase_service_key
+        )
+        db_result = uploader.reset_database()
+        print(f"[DELETE] {db_result['message']}.")
+        if db_result.get('deleted_logs_count', 0) > 0:
+            print(f"         Removed {db_result['deleted_logs_count']} submission log(s).")
+        if db_result.get('deleted_challenges_count', 0) > 0:
+            print(f"         Removed {db_result['deleted_challenges_count']} challenge(s).")
+        if db_result.get('deleted_count', 0) > 0:
+            print(f"         Total: {db_result['deleted_count']} record(s) removed.")
+        print("")
+        
+        # Step 2: Reset Docker
+        print("[2/2] Resetting Docker environment...")
+        docker_result = uploader.reset_docker()
+        print(f"[DELETE] Removed {docker_result['removed_containers']} container(s).")
+        print(f"[DELETE] Removed {docker_result['removed_images']} image(s).")
+        print("")
+        
+        print("[SUCCESS] Environment is clean.")
+        return 0
+        
+    except ValueError as e:
+        print(f"[ERROR] {e}", file=sys.stderr)
+        return 1
+    except RuntimeError as e:
+        print(f"[ERROR] {e}", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"[ERROR] Unexpected error: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        return 1
+
+
 def cmd_auto_add(args):
     """Automated mission addition: draft -> deploy -> build -> generate SNS."""
     difficulty = args.difficulty
@@ -216,10 +278,13 @@ def cmd_auto_add(args):
         # Step 1: Draft Generation
         print("[1/4] Generating draft mission JSON...")
         drafter = MissionDrafter(output_dir=output_dir, api_key=api_key)
+        # Use random category and theme for auto-add (for diversity)
         success, draft_file_path, mission = drafter.draft(
             difficulty=difficulty,
             max_retries=3,
-            verbose=verbose
+            verbose=verbose,
+            category=None,  # Random selection for diversity
+            theme=None  # Random selection for diversity
         )
         
         if not success:
@@ -332,6 +397,9 @@ Examples:
   
   # Generate mission briefing
   python tools/cli.py generate challenges/samples/valid_mission.json briefing
+  
+  # Reset development environment
+  python tools/cli.py reset
         """
     )
     
@@ -373,6 +441,20 @@ Examples:
         action='store_true',
         help='Show detailed error messages for debugging'
     )
+    parser_draft.add_argument(
+        '--category',
+        type=str,
+        choices=list(CHALLENGE_CATEGORIES.keys()),
+        default=None,
+        help='Challenge category (e.g., WEB_SQLI, CRYPTO_RSA). If not specified, random.'
+    )
+    parser_draft.add_argument(
+        '--theme',
+        type=str,
+        choices=VISUAL_THEMES,
+        default=None,
+        help='Visual theme (e.g., CORPORATE, UNDERGROUND). If not specified, random.'
+    )
     
     # build command
     parser_build = subparsers.add_parser('build', help='Build Docker image from mission JSON')
@@ -398,6 +480,21 @@ Examples:
         help='Supabase URL (if not set, reads from NEXT_PUBLIC_SUPABASE_URL or SUPABASE_URL env var)'
     )
     parser_deploy.add_argument(
+        '--supabase-service-key',
+        type=str,
+        default=None,
+        help='Supabase Service Key (if not set, reads from SUPABASE_SERVICE_KEY env var)'
+    )
+    
+    # reset command
+    parser_reset = subparsers.add_parser('reset', help='Reset development environment: clear database and remove Docker containers/images')
+    parser_reset.add_argument(
+        '--supabase-url',
+        type=str,
+        default=None,
+        help='Supabase URL (if not set, reads from NEXT_PUBLIC_SUPABASE_URL or SUPABASE_URL env var)'
+    )
+    parser_reset.add_argument(
         '--supabase-service-key',
         type=str,
         default=None,
@@ -498,6 +595,8 @@ Examples:
         return cmd_deploy(args)
     elif args.command == 'auto-add':
         return cmd_auto_add(args)
+    elif args.command == 'reset':
+        return cmd_reset(args)
     else:
         parser.print_help()
         return 1

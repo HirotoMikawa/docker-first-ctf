@@ -137,6 +137,7 @@ class ChallengeInfo(BaseModel):
     difficulty: Optional[int] = None  # Changed from str to int (DB column is now integer)
     category: Optional[str] = None
     points: Optional[int] = None
+    writeup: Optional[str] = None  # Educational writeup in Markdown format
     
     class Config:
         populate_by_name = True
@@ -431,9 +432,9 @@ def list_challenges(
         
         supabase = get_supabase_db_client()
         # 存在するカラムのみを取得（categoryカラムは存在しないため除外）
-        # 実際のDBスキーマ: id, title, description, difficulty, points, image_name, internal_port, flag など
+        # 実際のDBスキーマ: id, title, description, difficulty, points, image_name, internal_port, flag, writeup など
         response = supabase.table("challenges").select(
-            "id, title, description, difficulty, points"
+            "id, title, description, difficulty, points, writeup"
         ).execute()
         
         print(f"[INFO] Supabase response: {len(response.data) if response.data else 0} challenges found")
@@ -459,6 +460,7 @@ def list_challenges(
                 "difficulty": challenge.get("difficulty"),
                 "points": challenge.get("points"),
                 "category": None,  # 存在しないカラムのため明示的にNone
+                "writeup": challenge.get("writeup"),  # Educational writeup
             }
             challenge_info = ChallengeInfo(**challenge_data)
             result.append(challenge_info)

@@ -2,11 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Terminal, Shield, Power, Loader2, AlertCircle, LogOut, User, Target, Flag, CheckCircle2, XCircle } from 'lucide-react';
+import { Terminal, Shield, Power, Loader2, AlertCircle, LogOut, User, Target, Flag, CheckCircle2, XCircle, BookOpen, AlertTriangle } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import { buildApiUrl } from '@/utils/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 
 interface Challenge {
@@ -16,6 +17,7 @@ interface Challenge {
   difficulty?: number; // DB column is now integer (1-5)
   category?: string;
   points?: number;
+  writeup?: string; // Educational writeup in Markdown format
 }
 
 interface MissionData {
@@ -91,6 +93,11 @@ export default function Home() {
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [loadingChallenges, setLoadingChallenges] = useState(true);
+  
+  // Writeup Dialog state
+  const [selectedWriteup, setSelectedWriteup] = useState<string | null>(null);
+  const [showWriteupDialog, setShowWriteupDialog] = useState(false);
+  const [showWriteupConfirm, setShowWriteupConfirm] = useState(false);
 
   useEffect(() => {
     // ユーザー情報を取得
@@ -672,7 +679,7 @@ export default function Home() {
                         {challenge.description || 'No description available.'}
                       </CardDescription>
                     </CardContent>
-                    <CardFooter>
+                    <CardFooter className="flex flex-col gap-2">
                       <Button
                         onClick={() => {
                           console.log('Button clicked, challenge:', challenge);
@@ -707,6 +714,21 @@ export default function Home() {
                           </>
                         )}
                       </Button>
+                      {challenge.writeup && (
+                        <Button
+                          onClick={() => {
+                            setSelectedWriteup(challenge.writeup || null);
+                            setShowWriteupConfirm(true);
+                          }}
+                          variant="outline"
+                          size="sm"
+                          className="w-full border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400"
+                        >
+                          <BookOpen className="w-4 h-4 mr-2" />
+                          <AlertTriangle className="w-3 h-3 mr-1" />
+                          Read Writeup (Spoiler Alert)
+                        </Button>
+                      )}
                     </CardFooter>
                   </Card>
                 ))}
@@ -715,6 +737,211 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      {/* Writeup Confirmation Dialog */}
+      <Dialog open={showWriteupConfirm} onOpenChange={setShowWriteupConfirm}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-400">
+              <AlertTriangle className="w-5 h-5" />
+              Spoiler Alert
+            </DialogTitle>
+            <DialogDescription className="text-zinc-400">
+              This writeup contains the solution to the challenge. Are you sure you want to view it?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-2 justify-end mt-4">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowWriteupConfirm(false);
+                setSelectedWriteup(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                setShowWriteupConfirm(false);
+                setShowWriteupDialog(true);
+              }}
+              className="bg-amber-600 hover:bg-amber-700"
+            >
+              Yes, Show Writeup
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Writeup Display Dialog */}
+      <Dialog open={showWriteupDialog} onOpenChange={setShowWriteupDialog}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BookOpen className="w-5 h-5" />
+              Challenge Writeup
+            </DialogTitle>
+            <DialogDescription>
+              Educational explanation and solution guide
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 prose prose-invert prose-zinc max-w-none">
+            {selectedWriteup ? (
+              <div className="text-zinc-300 whitespace-pre-wrap font-mono text-sm">
+                {renderMarkdown(selectedWriteup)}
+              </div>
+            ) : (
+              <p className="text-zinc-400">No writeup available.</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </main>
   );
+}
+
+// Simple Markdown renderer (basic support)
+function renderMarkdown(markdown: string): React.ReactNode {
+  const lines = markdown.split('\n');
+  const elements: React.ReactNode[] = [];
+  let currentParagraph: string[] = [];
+  let inCodeBlock = false;
+  let codeBlockContent: string[] = [];
+  let currentListItems: string[] = [];
+  let inList = false;
+
+  const flushParagraph = () => {
+    if (currentParagraph.length > 0) {
+      const text = currentParagraph.join(' ');
+      if (text.trim()) {
+        // Simple markdown parsing
+        const processed = text
+          .replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-zinc-100">$1</strong>')
+          .replace(/\*(.*?)\*/g, '<em class="italic">$1</em>')
+          .replace(/`(.*?)`/g, '<code class="bg-zinc-800 px-1 py-0.5 rounded text-emerald-400">$1</code>');
+        
+        elements.push(
+          <p 
+            key={`p-${elements.length}`}
+            className="mb-3 text-zinc-300"
+            dangerouslySetInnerHTML={{ __html: processed }}
+          />
+        );
+      }
+      currentParagraph = [];
+    }
+  };
+
+  const flushList = () => {
+    if (currentListItems.length > 0) {
+      elements.push(
+        <ul key={`ul-${elements.length}`} className="ml-6 mb-4 list-disc space-y-1">
+          {currentListItems.map((item, idx) => {
+            const processed = item
+              .replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-zinc-100">$1</strong>')
+              .replace(/\*(.*?)\*/g, '<em class="italic">$1</em>')
+              .replace(/`(.*?)`/g, '<code class="bg-zinc-800 px-1 py-0.5 rounded text-emerald-400">$1</code>');
+            return (
+              <li 
+                key={idx}
+                className="text-zinc-300"
+                dangerouslySetInnerHTML={{ __html: processed }}
+              />
+            );
+          })}
+        </ul>
+      );
+      currentListItems = [];
+      inList = false;
+    }
+  };
+
+  lines.forEach((line, index) => {
+    // Code block detection
+    if (line.startsWith('```')) {
+      flushParagraph();
+      flushList();
+      if (inCodeBlock) {
+        // End code block
+        elements.push(
+          <pre key={`code-${elements.length}`} className="bg-zinc-900 border border-zinc-800 rounded p-4 overflow-x-auto mb-4">
+            <code className="text-emerald-400 text-xs font-mono whitespace-pre">{codeBlockContent.join('\n')}</code>
+          </pre>
+        );
+        codeBlockContent = [];
+        inCodeBlock = false;
+      } else {
+        // Start code block
+        inCodeBlock = true;
+      }
+      return;
+    }
+
+    if (inCodeBlock) {
+      codeBlockContent.push(line);
+      return;
+    }
+
+    // Header detection
+    if (line.startsWith('### ')) {
+      flushParagraph();
+      flushList();
+      const text = line.substring(4);
+      elements.push(
+        <h3 key={`h3-${elements.length}`} className="text-xl font-bold text-zinc-100 mt-6 mb-3">
+          {text}
+        </h3>
+      );
+      return;
+    }
+    if (line.startsWith('## ')) {
+      flushParagraph();
+      flushList();
+      const text = line.substring(3);
+      elements.push(
+        <h2 key={`h2-${elements.length}`} className="text-2xl font-bold text-zinc-100 mt-8 mb-4">
+          {text}
+        </h2>
+      );
+      return;
+    }
+    if (line.startsWith('# ')) {
+      flushParagraph();
+      flushList();
+      const text = line.substring(2);
+      elements.push(
+        <h1 key={`h1-${elements.length}`} className="text-3xl font-bold text-zinc-100 mt-10 mb-5">
+          {text}
+        </h1>
+      );
+      return;
+    }
+
+    // List detection
+    if (line.match(/^[-*] /) || line.match(/^\d+\. /)) {
+      flushParagraph();
+      const listItem = line.replace(/^[-*] /, '').replace(/^\d+\. /, '');
+      currentListItems.push(listItem);
+      inList = true;
+      return;
+    }
+
+    // Empty line
+    if (line.trim() === '') {
+      flushParagraph();
+      flushList();
+      return;
+    }
+
+    // Regular line
+    if (inList) {
+      flushList();
+    }
+    currentParagraph.push(line);
+  });
+
+  flushParagraph();
+  flushList();
+
+  return <div className="space-y-2">{elements}</div>;
 }

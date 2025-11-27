@@ -99,6 +99,20 @@ class MissionUploader:
         internal_port = environment.get("internal_port", 8000)  # Default port
         points = environment.get("cost_token", 0)  # Use cost_token as points
         
+        # Extract writeup from JSON (if present)
+        writeup = mission_json.get("writeup", None)
+        
+        # Extract tags from JSON (if present)
+        # Priority: top-level tags > environment.tags
+        tags = mission_json.get("tags", None)
+        if not tags and "environment" in mission_json:
+            tags = mission_json["environment"].get("tags", None)
+        
+        # Build metadata (full JSON, but ensure tags are included if not in top-level)
+        metadata = mission_json.copy()
+        if tags and "tags" not in metadata:
+            metadata["tags"] = tags
+        
         # Build database record
         db_record = {
             "id": mission_id,  # Primary key
@@ -108,9 +122,13 @@ class MissionUploader:
             "points": points,
             "image_name": image_name,
             "internal_port": internal_port,
-            "metadata": mission_json,  # Full JSON as jsonb
+            "metadata": metadata,  # Full JSON as jsonb (with tags included)
             "status": "active"  # Make it playable immediately
         }
+        
+        # Add writeup if present
+        if writeup:
+            db_record["writeup"] = writeup
         
         # Add optional fields if they exist in the JSON
         if "type" in mission_json:
@@ -212,6 +230,188 @@ class MissionUploader:
                 )
             else:
                 raise RuntimeError(f"Database operation failed: {error_msg}")
+    
+    def reset_database(self) -> Dict[str, Any]:
+        """
+        Reset database by deleting all records in correct order (child -> parent).
+        
+        Deletes in order:
+        1. submission_logs (child table, references challenges)
+        2. challenges (parent table)
+        
+        Returns:
+            Dictionary with reset result
+            
+        Raises:
+            RuntimeError: If database operation fails
+        """
+        try:
+            deleted_logs_count = 0
+            deleted_challenges_count = 0
+            
+            # Step 1: Delete submission_logs first (child table)
+            try:
+                # UUID形式のゼロ（Nil UUID）と比較することで、全件削除を行う
+                logs_response = self.client.table("submission_logs").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
+                deleted_logs_count = len(logs_response.data) if logs_response.data else 0
+            except Exception as e:
+                # If submission_logs table doesn't exist, that's okay
+                error_msg = str(e).lower()
+                if "does not exist" not in error_msg and "relation" not in error_msg:
+                    print(f"Warning: Failed to delete submission_logs: {e}", file=sys.stderr)
+            
+            # Step 2: Delete challenges (parent table)
+            challenges_response = self.client.table("challenges").delete().neq("id", "").execute()
+            deleted_challenges_count = len(challenges_response.data) if challenges_response.data else 0
+            
+            return {
+                "success": True,
+                "message": "Database cleared",
+                "deleted_logs_count": deleted_logs_count,
+                "deleted_challenges_count": deleted_challenges_count,
+                "deleted_count": deleted_logs_count + deleted_challenges_count
+            }
+        except Exception as e:
+            error_msg = str(e)
+            raise RuntimeError(f"Database reset failed: {error_msg}")
+    
+    def reset_docker(self) -> Dict[str, Any]:
+        """
+        Reset Docker environment by removing all sol/mission- containers and images.
+        
+        Returns:
+            Dictionary with reset result containing counts of removed containers and images
+            
+        Raises:
+            RuntimeError: If Docker operation fails
+        """
+        removed_containers = 0
+        removed_images = 0
+        
+        # Try to use docker library first
+        try:
+            import docker
+            client = docker.from_env()
+            
+            # Find and remove containers
+            all_containers = client.containers.list(all=True)
+            container_ids_processed = set()
+            
+            for container in all_containers:
+                # Check if container name or image contains sol/mission-
+                container_name = container.name or ""
+                container_image = str(container.image) if container.image else ""
+                
+                if "sol/mission-" in container_name or "sol/mission-" in container_image:
+                    if container.id not in container_ids_processed:
+                        try:
+                            if container.status == "running":
+                                container.stop(timeout=10)
+                            container.remove()
+                            removed_containers += 1
+                            container_ids_processed.add(container.id)
+                        except Exception as e:
+                            print(f"Warning: Failed to remove container {container_name}: {e}", file=sys.stderr)
+            
+            # Find and remove images
+            images = client.images.list()
+            for image in images:
+                # Check if any tag contains sol/mission-
+                if image.tags:
+                    for tag in image.tags:
+                        if "sol/mission-" in tag:
+                            try:
+                                client.images.remove(image.id, force=True)
+                                removed_images += 1
+                                break  # Image already removed
+                            except Exception as e:
+                                print(f"Warning: Failed to remove image {tag}: {e}", file=sys.stderr)
+            
+            return {
+                "success": True,
+                "removed_containers": removed_containers,
+                "removed_images": removed_images
+            }
+            
+        except ImportError:
+            # Fallback to subprocess
+            import subprocess
+            
+            # Remove containers
+            try:
+                result = subprocess.run(
+                    ["docker", "ps", "-a", "--format", "{{.ID}} {{.Names}} {{.Image}}"],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                
+                for line in result.stdout.strip().split('\n'):
+                    if not line.strip():
+                        continue
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        container_id = parts[0]
+                        container_name = parts[1]
+                        container_image = ' '.join(parts[2:])
+                        
+                        if "sol/mission-" in container_name or "sol/mission-" in container_image:
+                            try:
+                                # Stop if running
+                                subprocess.run(
+                                    ["docker", "stop", container_id],
+                                    capture_output=True,
+                                    check=False
+                                )
+                                # Remove
+                                subprocess.run(
+                                    ["docker", "rm", container_id],
+                                    capture_output=True,
+                                    check=False
+                                )
+                                removed_containers += 1
+                            except Exception as e:
+                                print(f"Warning: Failed to remove container {container_id}: {e}", file=sys.stderr)
+            except subprocess.CalledProcessError as e:
+                print(f"Warning: Failed to list containers: {e}", file=sys.stderr)
+            
+            # Remove images
+            try:
+                result = subprocess.run(
+                    ["docker", "images", "--format", "{{.Repository}}:{{.Tag}} {{.ID}}"],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                
+                for line in result.stdout.strip().split('\n'):
+                    if not line.strip():
+                        continue
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        image_tag = parts[0]
+                        image_id = parts[1]
+                        
+                        if "sol/mission-" in image_tag:
+                            try:
+                                subprocess.run(
+                                    ["docker", "rmi", "-f", image_id],
+                                    capture_output=True,
+                                    check=False
+                                )
+                                removed_images += 1
+                            except Exception as e:
+                                print(f"Warning: Failed to remove image {image_tag}: {e}", file=sys.stderr)
+            except subprocess.CalledProcessError as e:
+                print(f"Warning: Failed to list images: {e}", file=sys.stderr)
+            
+            return {
+                "success": True,
+                "removed_containers": removed_containers,
+                "removed_images": removed_images
+            }
+        except Exception as e:
+            raise RuntimeError(f"Docker reset failed: {str(e)}")
 
 
 def main():

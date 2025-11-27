@@ -100,7 +100,16 @@ class ContentGenerator:
         difficulty = self.mission.get("difficulty", 0)
         vulnerability = self.mission.get("vulnerability", {})
         cve_id = vulnerability.get("cve_id", "CVE-XXXX-XXXX")
+        vulnerability_type = vulnerability.get("type", mission_type)  # Use vulnerability.type if available
         mission_id = self.mission.get("mission_id", "SOL-MSN-XXX")
+        
+        # Extract tags (priority: top-level tags > environment.tags)
+        tags = self.mission.get("tags", [])
+        if not tags and "environment" in self.mission:
+            tags = self.mission["environment"].get("tags", [])
+        
+        # Check if writeup exists
+        has_writeup = bool(self.mission.get("writeup"))
         
         # Build URL
         mission_slug = mission_id.lower().replace("-", "_")
@@ -127,39 +136,45 @@ class ContentGenerator:
 **Output Templates (Choose ONE randomly):**
 
 1. **The Skill Check:**
-   "🔥 [Vulnerability Type] Challenge
-   Difficulty: {diff}/5
+   "🔥 [Vulnerability Type] Challenge ({Category})
+   Difficulty: ⭐️⭐️⭐️ ({Difficulty Level})
    
-   Think you know {type}? This mission will test your limits. The target '{target_name}' is vulnerable, but only the best can find the entry point.
+   Think you know {type}? This mission will test your limits. Learn how {vulnerability_description} can be exploited.
+   {writeup_mention}
    
-   Prove your skills: {url}
-   #ProjectSol #CTF #CyberSecurity"
+   Try it now: {url}
+   #ProjectSol #CyberSecurity {relevant_hashtags}"
 
 2. **The "Impossible" Challenge:**
    "⚠️ WARNING: High Difficulty
    
    Mission ID: {mission_id}
-   Target: {target_name}
+   Category: {Category}
+   Vulnerability: {type}
    
    Current solve rate: 0%. Be the first to pwn this system. It won't be easy.
+   {writeup_mention}
    
    Deploy now: {url}
-   #ProjectSol #Hacking"
+   #ProjectSol {relevant_hashtags}"
 
 3. **The Story Hook:**
    "🕵️ MISSION ALERT
    
-   Intel reports a massive security oversight in {target_name}. We need an agent to exploit this {type} vulnerability before they patch it.
+   Intel reports a massive security oversight. We need an agent to exploit this {type} vulnerability ({Category}) before they patch it.
+   {writeup_mention}
    
    Are you up for the task?
    👉 {url}
-   #ProjectSol #InfoSec"
+   #ProjectSol #InfoSec {relevant_hashtags}"
 
 **Constraints:**
-- Use relevant emojis (🔥, 💀, 💻, 🛡️, ⚠️, 🕵️, 👉) effectively
+- Use relevant emojis (🔥, 💀, 💻, 🛡️, ⚠️, 🕵️, 👉, ⭐️) effectively
 - Keep it under 200 characters (excluding URL/Tags)
 - NEVER sound bored or passive. Be aggressive in a fun way
 - Always include #ProjectSol hashtag
+- Include relevant hashtags based on tags (e.g., #SQLi, #Web, #RCE, #LearnToHack)
+- If writeup exists, mention it (e.g., "Includes a full step-by-step writeup! 📚")
 - NEVER use forbidden words or exclamation marks"""
         
         # Extract target name from narrative or use mission_id
@@ -173,22 +188,74 @@ class ContentGenerator:
             if words:
                 target_name = " ".join(words).rstrip(".,!?")
         
+        # Build difficulty level description
+        difficulty_levels = {
+            1: "Beginner Friendly",
+            2: "Beginner Friendly",
+            3: "Intermediate",
+            4: "Advanced",
+            5: "Expert"
+        }
+        difficulty_level = difficulty_levels.get(difficulty, "Intermediate")
+        
+        # Build category from tags (first tag or "Web" as default)
+        category = tags[0] if tags else "Web"
+        
+        # Build vulnerability description
+        vulnerability_descriptions = {
+            "SQLi": "database queries",
+            "RCE": "remote code execution",
+            "SSRF": "server-side request forgery",
+            "XXE": "XML external entity injection",
+            "IDOR": "insecure direct object references",
+            "PrivEsc": "privilege escalation",
+            "LogicError": "logic flaws",
+            "Misconfig": "misconfigurations"
+        }
+        vulnerability_description = vulnerability_descriptions.get(mission_type, "security vulnerabilities")
+        
+        # Build relevant hashtags from tags
+        hashtag_map = {
+            "Web": "#Web",
+            "SQL": "#SQLi",
+            "RCE": "#RCE",
+            "Network": "#Network",
+            "Crypto": "#Crypto",
+            "Auth": "#Auth",
+            "Beginner": "#LearnToHack",
+            "Intermediate": "#CTF",
+            "Advanced": "#Hacking",
+            "Expert": "#CyberSecurity"
+        }
+        relevant_hashtags = " ".join([hashtag_map.get(tag, f"#{tag}") for tag in tags[:3] if tag])
+        if not relevant_hashtags:
+            relevant_hashtags = "#CTF #CyberSecurity"
+        
+        # Build writeup mention
+        writeup_mention = "Includes a full step-by-step writeup! 📚" if has_writeup else ""
+        
         # User Prompt
         user_prompt = f"""Create a challenging SNS post (Twitter/X format) that makes hackers want to prove their skills.
 
 **Mission Information:**
-- Type: {mission_type}
-- Difficulty: {difficulty}/5
+- Type: {mission_type} ({vulnerability_type})
+- Category: {category}
+- Difficulty: {difficulty}/5 ({difficulty_level})
 - CVE: {cve_id}
 - Mission ID: {mission_id}
 - Target Name: {target_name}
+- Tags: {', '.join(tags) if tags else 'None'}
+- Has Writeup: {has_writeup}
 - URL: {url}
 
 **Instructions:**
 - Choose ONE of the three templates (The Skill Check, The "Impossible" Challenge, or The Story Hook)
 - Fill in the placeholders with the mission information above
+- Use Category: {category}, Difficulty Level: {difficulty_level}, Vulnerability Description: {vulnerability_description}
+- Include relevant hashtags: {relevant_hashtags}
+- If writeup exists, include: {writeup_mention}
 - Make it challenging, urgent, and exclusive
-- Use emojis effectively (🔥, 💀, 💻, 🛡️, ⚠️, 🕵️, 👉)
+- Use emojis effectively (🔥, 💀, 💻, 🛡️, ⚠️, 🕵️, 👉, ⭐️, 📚)
 - Keep it under 200 characters (excluding URL and hashtags)
 - NEVER use forbidden words or exclamation marks
 - Always include #ProjectSol hashtag
