@@ -23,7 +23,21 @@ from marketing.generator import generate_from_file, ContentGenerator
 from generation.drafter import MissionDrafter, CHALLENGE_CATEGORIES, VISUAL_THEMES
 from deploy.uploader import MissionUploader
 from builder.simple_builder import ImageBuilder
+from solver.container_tester import ContainerTester
 import json
+
+# Docker library for cleanup
+try:
+    import docker
+except ImportError:
+    docker = None
+
+# Requests library (optional, for flag verification)
+try:
+    import requests
+    HAS_REQUESTS = True
+except ImportError:
+    HAS_REQUESTS = False
 
 
 def cmd_validate(args):
@@ -258,7 +272,7 @@ def cmd_reset(args):
 
 
 def cmd_auto_add(args):
-    """Automated mission addition: draft -> deploy -> build -> generate SNS."""
+    """Automated mission addition: draft -> build -> test -> regenerate writeup -> deploy -> generate SNS."""
     difficulty = args.difficulty
     output_dir = args.output_dir
     api_key = args.api_key
@@ -273,10 +287,13 @@ def cmd_auto_add(args):
     
     mission_id = None
     draft_file_path = None
+    container_id = None
+    container_url = None
+    tester = None
     
     try:
-        # Step 1: Draft Generation
-        print("[1/4] Generating draft mission JSON...")
+        # Step 1: Draft Generation (without writeup initially)
+        print("[1/6] Generating draft mission JSON (without writeup)...")
         drafter = MissionDrafter(output_dir=output_dir, api_key=api_key)
         # Use random category and theme for auto-add (for diversity)
         success, draft_file_path, mission = drafter.draft(
@@ -284,7 +301,7 @@ def cmd_auto_add(args):
             max_retries=3,
             verbose=verbose,
             category=None,  # Random selection for diversity
-            theme=None  # Random selection for diversity
+            theme=None,  # Random selection for diversity
         )
         
         if not success:
@@ -292,37 +309,215 @@ def cmd_auto_add(args):
             return 1
         
         mission_id = mission.get("mission_id", "UNKNOWN")
-        print(f"[1/4] ✓ Draft generated: {draft_file_path}")
+        print(f"[1/8] ✓ Draft generated: {draft_file_path}")
         print(f"      Mission ID: {mission_id}")
         print("")
         
-        # Step 2: Deploy to Database
-        print("[2/4] Deploying to database...")
-        uploader = MissionUploader(
-            supabase_url=supabase_url,
-            supabase_service_key=supabase_service_key
-        )
-        deploy_result = uploader.deploy(draft_file_path, validate=True)
-        
-        print(f"[2/4] ✓ Deployed to Database")
-        print(f"      Mission ID: {deploy_result['mission_id']}")
+        # Step 2: Validate Dockerfile (user creation check + flag placement)
+        print("[2/8] Validating Dockerfile...")
+        try:
+            with open(draft_file_path, 'r', encoding='utf-8') as f:
+                mission_data = json.load(f)
+            dockerfile_content = mission_data.get("files", {}).get("Dockerfile", "")
+            problem_type = mission_data.get("type", "Unknown")
+            expected_flag = mission_data.get("flag_answer", "")
+            
+            if dockerfile_content:
+                # Check user creation
+                from validation.dockerfile_validator import validate_dockerfile_user_creation
+                is_valid, errors = validate_dockerfile_user_creation(dockerfile_content)
+                if not is_valid:
+                    print("[WARNING] Dockerfile validation issues found:", file=sys.stderr)
+                    for error in errors:
+                        print(f"  ⚠ {error}", file=sys.stderr)
+                    print("[WARNING] Continuing with build, but container may fail to start", file=sys.stderr)
+                
+                # Check flag placement
+                from validation.flag_placement_validator import validate_flag_placement
+                is_flag_valid, flag_errors = validate_flag_placement(dockerfile_content, problem_type, expected_flag)
+                if not is_flag_valid:
+                    print("[WARNING] Flag placement validation issues found:", file=sys.stderr)
+                    for error in flag_errors:
+                        print(f"  ⚠ {error}", file=sys.stderr)
+                    print("[WARNING] Flag may be in wrong location. Problem may still work, but not optimal.", file=sys.stderr)
+        except Exception as e:
+            print(f"[WARNING] Dockerfile validation skipped: {e}", file=sys.stderr)
         print("")
         
         # Step 3: Build Docker Image
-        print("[3/4] Building Docker image...")
+        print("[3/8] Building Docker image...")
         builder = ImageBuilder(use_docker_lib=not use_subprocess)
         build_success = builder.build(draft_file_path)
         
         if not build_success:
             print("[ERROR] Docker image build failed", file=sys.stderr)
-            print("[WARNING] Mission is deployed to database but image build failed", file=sys.stderr)
             return 1
         
-        print(f"[3/4] ✓ Docker Image Built")
+        print(f"[3/8] ✓ Docker Image Built")
         print("")
         
-        # Step 4: Generate SNS Content
-        print("[4/4] Generating SNS marketing content...")
+        # Step 4: Start Test Container and Verify Solvability
+        print("[4/8] Starting test container and verifying solvability...")
+        tester = ContainerTester(use_docker_lib=not use_subprocess)
+        
+        image_name = mission.get("environment", {}).get("image", "")
+        flag_answer = mission.get("flag_answer", "")
+        
+        if not image_name:
+            print("[ERROR] Missing image name in mission JSON", file=sys.stderr)
+            return 1
+        
+        if not flag_answer:
+            print("[ERROR] Missing flag_answer in mission JSON", file=sys.stderr)
+            return 1
+        
+        # Start test container
+        container_id, port, container_url = tester.start_test_container(
+            image_name=image_name,
+            flag=flag_answer,
+            timeout=30
+        )
+        
+        if not container_id or not container_url:
+            print("[ERROR] Failed to start test container", file=sys.stderr)
+            # Mark as unsolvable
+            mission["writeup"] = """# ⚠️ 問題の不備について
+
+この問題には不備があり、現在解答できない可能性があります。
+
+**問題の状態:**
+- コンテナの起動に失敗しました
+- 解答の確認ができませんでした
+
+**推奨事項:**
+- 問題のコードを確認してください
+- Dockerfileとアプリケーションコードに問題がないか確認してください
+- 必要に応じて問題を再生成してください。
+
+この問題は、修正が必要な状態です。"""
+            # Save updated JSON
+            with open(draft_file_path, 'w', encoding='utf-8') as f:
+                json.dump(mission, f, indent=2, ensure_ascii=False)
+            print("[WARNING] Mission marked as potentially unsolvable", file=sys.stderr)
+        else:
+            print(f"[4/8] ✓ Test container started")
+            print(f"      Container ID: {container_id[:12]}")
+            print(f"      Container URL: {container_url}")
+            print("")
+            
+            # Test solvability using internal inspection + functional testing
+            mission_type = mission.get("type", "Web")
+            is_solvable, error_msg, found_flag = tester.test_solvability(
+                container_id=container_id,
+                expected_flag=flag_answer,
+                timeout=60,
+                mission_type=mission_type,
+                container_url=container_url
+            )
+            
+            if not is_solvable:
+                print(f"[ERROR] Problem is NOT solvable: {error_msg}", file=sys.stderr)
+                print(f"[ERROR] This problem needs to be fixed or regenerated", file=sys.stderr)
+                # Mark as unsolvable and stop deployment
+                mission["writeup"] = f"""# ⚠️ 問題の不備について
+
+この問題には不備があり、**実際に解答できません**。
+
+**問題の状態:**
+- コンテナは起動しましたが、自動検証で解答できませんでした
+- エラー: {error_msg}
+- **この問題はデプロイされません**
+
+**推奨事項:**
+- 問題のコードを確認してください
+- フラグが正しく配置されているか確認してください
+- 解く側が実際にアクセスできる情報で解答できるか確認してください
+- 問題を再生成してください。
+
+この問題は、修正が必要な状態です。"""
+                # Save updated JSON
+                with open(draft_file_path, 'w', encoding='utf-8') as f:
+                    json.dump(mission, f, indent=2, ensure_ascii=False)
+                print("[ERROR] Mission marked as unsolvable - deployment will be skipped", file=sys.stderr)
+                # Stop the process - don't deploy unsolvable problems
+                tester.stop_test_container(container_id)
+                return 1
+            else:
+                print(f"[4/8] ✓ Container is solvable")
+                if found_flag:
+                    print(f"      Flag found: {found_flag}")
+                print("")
+                
+                # Step 5: Verify flag can be obtained (optional check)
+                print("[5/8] Verifying flag accessibility...")
+                # Try to find flag in the container
+                flag_found = False
+                flag_location = None
+                if HAS_REQUESTS:
+                    try:
+                        import requests
+                        # Check common locations
+                        test_paths = [
+                            ("/", "root"),
+                            ("/flag", "flag endpoint"),
+                            ("/api/flag", "api flag endpoint"),
+                            ("/debug", "debug endpoint"),
+                        ]
+                        for path, desc in test_paths:
+                            try:
+                                res = requests.get(f"{container_url}{path}", timeout=3)
+                                if res.status_code == 200 and flag_answer in res.text:
+                                    flag_found = True
+                                    flag_location = f"{path} ({desc})"
+                                    print(f"      ✓ Flag found at: {flag_location}")
+                                    break
+                            except:
+                                pass
+                        if not flag_found:
+                            print(f"      ⚠ Flag not found in common locations (this is normal for RCE/SSRF challenges)")
+                    except Exception as e:
+                        print(f"      ⚠ Flag verification skipped: {e}")
+                
+                # Step 6: Regenerate Writeup with Actual Container URL
+                print("[6/8] Regenerating writeup with actual container URL...")
+                new_writeup = drafter.regenerate_writeup(
+                    mission_json=mission,
+                    container_url=container_url,
+                    api_key=api_key
+                )
+                
+                if new_writeup:
+                    mission["writeup"] = new_writeup
+                    # Save updated JSON
+                    with open(draft_file_path, 'w', encoding='utf-8') as f:
+                        json.dump(mission, f, indent=2, ensure_ascii=False)
+                    print(f"[6/8] ✓ Writeup regenerated with actual container URL")
+                    print("")
+                else:
+                    print("[WARNING] Failed to regenerate writeup, using original", file=sys.stderr)
+                    print("")
+        
+        # Step 7: Deploy to Database
+        print("[7/8] Deploying to database...")
+        try:
+            uploader = MissionUploader(
+                supabase_url=supabase_url,
+                supabase_service_key=supabase_service_key
+            )
+            deploy_result = uploader.deploy(draft_file_path, validate=True)
+            
+            print(f"[7/8] ✓ Deployed to Database")
+            print(f"      Mission ID: {deploy_result['mission_id']}")
+            print("")
+        except Exception as deploy_error:
+            print(f"[ERROR] Database deployment failed: {deploy_error}", file=sys.stderr)
+            print("[WARNING] Mission JSON file is saved but not deployed to database", file=sys.stderr)
+            if draft_file_path:
+                print(f"[INFO] You can manually deploy later using: python tools/cli.py deploy {draft_file_path}", file=sys.stderr)
+            raise  # Re-raise to trigger cleanup
+        
+        # Step 7: Generate SNS Content
+        print("[8/8] Generating SNS marketing content...")
         sns_content = generate_from_file(
             draft_file_path,
             output_format="sns",
@@ -336,7 +531,7 @@ def cmd_auto_add(args):
         with open(sns_file_path, 'w', encoding='utf-8') as f:
             f.write(sns_content)
         
-        print(f"[4/4] ✓ SNS Content Generated")
+        print(f"[8/8] ✓ SNS Content Generated")
         print(f"      Saved to: {sns_file_path}")
         print("")
         
@@ -353,6 +548,8 @@ def cmd_auto_add(args):
         print(f"  - Draft: {draft_file_path}")
         print(f"  - Database: Deployed")
         print(f"  - Docker Image: Built")
+        if container_url:
+            print(f"  - Test Container URL: {container_url}")
         print(f"  - SNS Content: {sns_file_path}")
         
         return 0
@@ -366,11 +563,35 @@ def cmd_auto_add(args):
     except FileNotFoundError as e:
         print(f"[ERROR] File not found: {e}", file=sys.stderr)
         return 1
+    except KeyboardInterrupt:
+        print("\n[ERROR] Operation cancelled by user", file=sys.stderr)
+        return 1
     except Exception as e:
         print(f"[ERROR] Unexpected error: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc()
         return 1
+    finally:
+        # Clean up test container in all cases (success or failure)
+        if container_id and tester:
+            try:
+                print("[CLEANUP] Stopping test container...")
+                tester.stop_test_container(container_id)
+                print("[CLEANUP] ✓ Test container stopped")
+            except Exception as cleanup_error:
+                print(f"[WARNING] Failed to cleanup test container: {cleanup_error}", file=sys.stderr)
+                # Try to force remove container
+                try:
+                    if tester.use_docker_lib and docker:
+                        container = tester.client.containers.get(container_id)
+                        container.remove(force=True)
+                    else:
+                        import subprocess
+                        subprocess.run(["docker", "rm", "-f", container_id], 
+                                     capture_output=True, timeout=10)
+                    print("[CLEANUP] ✓ Test container force-removed")
+                except Exception as force_cleanup_error:
+                    print(f"[WARNING] Failed to force-remove container: {force_cleanup_error}", file=sys.stderr)
 
 
 def main():

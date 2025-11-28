@@ -128,6 +128,11 @@ class MissionUploader:
         
         # Add writeup if present
         if writeup:
+            # Note: {{CONTAINER_HOST}} placeholder in writeup will be replaced by the frontend
+            # when displaying the writeup, using the actual container URL from missionData.url
+            # This is because at deploy time, the container is not yet started, so we don't know
+            # the actual port number. The frontend will replace {{CONTAINER_HOST}} with
+            # the actual hostname:port (e.g., localhost:32804) when the user views the writeup.
             db_record["writeup"] = writeup
         
         # Add optional fields if they exist in the JSON

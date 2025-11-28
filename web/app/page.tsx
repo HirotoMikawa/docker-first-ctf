@@ -18,6 +18,11 @@ interface Challenge {
   category?: string;
   points?: number;
   writeup?: string; // Educational writeup in Markdown format
+  tags?: string[]; // Tags array (e.g., ["Web", "SQL", "Beginner"])
+  metadata?: {
+    tags?: string[]; // Alternative location for tags
+    category?: string; // Category key (e.g., "WEB_SQLI")
+  };
 }
 
 interface MissionData {
@@ -623,6 +628,46 @@ export default function Home() {
                 </div>
               )}
 
+              {/* Writeup Button - Show after INITIALIZE */}
+              {(() => {
+                // Find the current challenge's writeup
+                const currentChallenge = challenges.find(
+                  (c) => c.challenge_id === missionData?.challenge_id || c.id === missionData?.challenge_id
+                );
+                
+                if (currentChallenge?.writeup && missionData) {
+                  return (
+                    <div className="border-t border-zinc-800 pt-4">
+                      <Button
+                        onClick={() => {
+                          // Replace {{CONTAINER_HOST}} placeholder with actual container URL
+                          let writeup = currentChallenge.writeup || null;
+                          if (writeup && missionData && missionData.url) {
+                            // Extract hostname from missionData.url (e.g., "http://localhost:32804" -> "localhost:32804")
+                            const url = new URL(missionData.url);
+                            const containerHost = `${url.hostname}${url.port ? ':' + url.port : ''}`;
+                            // Replace {{CONTAINER_HOST}} with actual host:port
+                            writeup = writeup.replace(/\{\{CONTAINER_HOST\}\}/g, containerHost);
+                            // Also replace http://localhost:8000 or similar patterns if they exist
+                            writeup = writeup.replace(/http:\/\/localhost:8000/g, missionData.url);
+                            writeup = writeup.replace(/http:\/\/localhost:\d+/g, missionData.url);
+                          }
+                          setSelectedWriteup(writeup);
+                          setShowWriteupConfirm(true);
+                        }}
+                        variant="outline"
+                        size="lg"
+                        className="w-full border-emerald-500/50 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400"
+                      >
+                        <BookOpen className="w-5 h-5 mr-2" />
+                        📘 解説を読む
+                      </Button>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+
               <Button
                 onClick={() => {
                   setMissionData(null);
@@ -678,6 +723,19 @@ export default function Home() {
                       <CardDescription className="text-zinc-400 text-sm">
                         {challenge.description || 'No description available.'}
                       </CardDescription>
+                      {/* Tags Display */}
+                      {(challenge.tags || challenge.metadata?.tags) && (
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          {(challenge.tags || challenge.metadata?.tags || []).map((tag, idx) => (
+                            <span
+                              key={idx}
+                              className="text-xs px-2 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-400 font-mono"
+                            >
+                              #{tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </CardContent>
                     <CardFooter className="flex flex-col gap-2">
                       <Button
@@ -714,21 +772,6 @@ export default function Home() {
                           </>
                         )}
                       </Button>
-                      {challenge.writeup && (
-                        <Button
-                          onClick={() => {
-                            setSelectedWriteup(challenge.writeup || null);
-                            setShowWriteupConfirm(true);
-                          }}
-                          variant="outline"
-                          size="sm"
-                          className="w-full border-amber-500/50 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400"
-                        >
-                          <BookOpen className="w-4 h-4 mr-2" />
-                          <AlertTriangle className="w-3 h-3 mr-1" />
-                          Read Writeup (Spoiler Alert)
-                        </Button>
-                      )}
                     </CardFooter>
                   </Card>
                 ))}
@@ -744,10 +787,10 @@ export default function Home() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-amber-400">
               <AlertTriangle className="w-5 h-5" />
-              Spoiler Alert
+              解説を表示しますか？
             </DialogTitle>
             <DialogDescription className="text-zinc-400">
-              This writeup contains the solution to the challenge. Are you sure you want to view it?
+              この解説には問題の解法が含まれています。表示してもよろしいですか？
             </DialogDescription>
           </DialogHeader>
           <div className="flex gap-2 justify-end mt-4">
@@ -758,16 +801,16 @@ export default function Home() {
                 setSelectedWriteup(null);
               }}
             >
-              Cancel
+              キャンセル
             </Button>
             <Button
               onClick={() => {
                 setShowWriteupConfirm(false);
                 setShowWriteupDialog(true);
               }}
-              className="bg-amber-600 hover:bg-amber-700"
+              className="bg-emerald-600 hover:bg-emerald-700"
             >
-              Yes, Show Writeup
+              解説を表示
             </Button>
           </div>
         </DialogContent>
@@ -777,21 +820,21 @@ export default function Home() {
       <Dialog open={showWriteupDialog} onOpenChange={setShowWriteupDialog}>
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <BookOpen className="w-5 h-5" />
-              Challenge Writeup
+            <DialogTitle className="flex items-center gap-2 text-zinc-100">
+              <BookOpen className="w-5 h-5 text-emerald-400" />
+              解説記事
             </DialogTitle>
-            <DialogDescription>
-              Educational explanation and solution guide
+            <DialogDescription className="text-zinc-400">
+              問題の解法と解説ガイド
             </DialogDescription>
           </DialogHeader>
           <div className="mt-4 prose prose-invert prose-zinc max-w-none">
             {selectedWriteup ? (
-              <div className="text-zinc-300 whitespace-pre-wrap font-mono text-sm">
+              <div className="text-zinc-300">
                 {renderMarkdown(selectedWriteup)}
               </div>
             ) : (
-              <p className="text-zinc-400">No writeup available.</p>
+              <p className="text-zinc-400">解説が利用できません。</p>
             )}
           </div>
         </DialogContent>

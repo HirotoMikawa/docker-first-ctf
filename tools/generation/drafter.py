@@ -264,6 +264,83 @@ class MissionDrafter:
 - **EXPOSE 8000** を必ず含めること。
 - **CMD**: `CMD ["python", "app.py"]` または `CMD ["python3", "app.py"]` を使用すること。
 
+**[CRITICAL: FLAG PLACEMENT STANDARDS - ABSOLUTE REQUIREMENT]**
+
+**⚠️ THIS IS THE MOST IMPORTANT RULE. YOU MUST FOLLOW IT EXACTLY BASED ON THE PROBLEM TYPE. ⚠️**
+
+The flag placement location is determined by the problem type (the "type" field in JSON). You MUST check the problem type and place the flag EXACTLY as specified below.
+
+**DECISION TREE:**
+1. If type is "RCE", "LFI", "PrivEsc", or "Misconfig" → Use Rule #1 (FILE at /home/ctfuser/flag.txt)
+2. If type is "SQLi", "XSS", "SSRF", "XXE", or "IDOR" → Use Rule #2 (ENV + FILE at /flag.txt)
+3. If type is "LogicError" or "Crypto" → Use Rule #3 (CODE or FILE)
+
+**Rule #1: RCE / LFI / PrivEsc / Misconfig Problems**
+   - **MANDATORY:** You MUST create a flag file at `/home/ctfuser/flag.txt` (NOT `/flag.txt`).
+   - **Dockerfile Instruction (EXACT FORMAT):**
+     ```dockerfile
+     RUN echo "SolCTF{RANDOM_STRING}" > /home/ctfuser/flag.txt && chmod 644 /home/ctfuser/flag.txt
+     ```
+   - **CRITICAL:** The path MUST be `/home/ctfuser/flag.txt` (with `/home/ctfuser/` prefix).
+   - **CRITICAL:** This MUST be executed BEFORE `USER ctfuser` (as root).
+   - **CRITICAL:** The flag value MUST match the `flag_answer` field in the JSON.
+   - **Example Dockerfile for RCE:**
+     ```dockerfile
+     FROM python:3.11-slim
+     RUN useradd -m -u 1000 ctfuser
+     RUN echo "SolCTF{example_flag}" > /home/ctfuser/flag.txt && chmod 644 /home/ctfuser/flag.txt
+     COPY app.py /home/ctfuser/app.py
+     RUN pip install Flask==3.0.0 Werkzeug==3.0.0
+     USER ctfuser
+     WORKDIR /home/ctfuser
+     EXPOSE 8000
+     CMD ["python", "app.py"]
+     ```
+   - **Writeup:** Explain that the user needs to read `/home/ctfuser/flag.txt` using the vulnerability (e.g., `cat /home/ctfuser/flag.txt`).
+
+**Rule #2: Web Problems (SQLi / XSS / SSRF / XXE / IDOR)**
+   - **MANDATORY:** Set the flag as an environment variable AND a file at `/flag.txt` (root directory).
+   - **Dockerfile Instructions (EXACT FORMAT):**
+     ```dockerfile
+     ENV FLAG="SolCTF{RANDOM_STRING}"
+     RUN echo "SolCTF{RANDOM_STRING}" > /flag.txt && chmod 644 /flag.txt
+     ```
+   - **CRITICAL:** The file path MUST be `/flag.txt` (root directory, NOT `/home/ctfuser/flag.txt`).
+   - **CRITICAL:** The flag value MUST match the `flag_answer` field in the JSON.
+   - **CRITICAL:** Both `/flag.txt` and `$FLAG` environment variable must contain the same value.
+   - **App Code:** The app typically reads from `os.getenv('FLAG')` or a database initialized with this value.
+   - **Writeup:** Explain that the user can access the flag through the vulnerability (e.g., SQLi to read from database, or RCE to read `/flag.txt`).
+
+**Rule #3: LogicError / Crypto Problems**
+   - **Method:** CODE EMBEDDED or FILE
+   - **Requirement:** The flag can be embedded in the code or in a file.
+   - **Dockerfile Instruction (if file):**
+     ```dockerfile
+     RUN echo "SolCTF{RANDOM_STRING}" > /home/ctfuser/flag.txt && chmod 644 /home/ctfuser/flag.txt
+     ```
+   - **App Code (if embedded):**
+     ```python
+     FLAG = "SolCTF{RANDOM_STRING}"
+     ```
+
+**VERIFICATION CHECKLIST:**
+Before submitting your Dockerfile, verify:
+- [ ] If type is "RCE", the Dockerfile contains `RUN echo ... > /home/ctfuser/flag.txt` (NOT `/flag.txt`)
+- [ ] If type is "SQLi" or other Web types, the Dockerfile contains `RUN echo ... > /flag.txt` (root directory)
+- [ ] The flag value in Dockerfile matches the `flag_answer` field exactly
+- [ ] The flag file creation happens BEFORE `USER ctfuser`
+
+**[CRITICAL DOCKERFILE USER CREATION]**
+- **ユーザー作成は必須**: `USER ctfuser`を使用する前に、必ずユーザーを作成すること。
+- **python:3.11-slimの場合**: `RUN useradd -m -u 1000 ctfuser` を使用すること。
+  - **重要**: `-s /bin/bash`オプションは使用しないこと。`python:3.11-slim`イメージには`bash`がインストールされていないため、`useradd`コマンドが失敗する可能性がある。
+  - 正しい例: `RUN useradd -m -u 1000 ctfuser`
+  - 間違った例: `RUN useradd -ms /bin/bash ctfuser`（bashが存在しないため失敗する）
+- **alpine:3.19の場合**: `RUN adduser -D -u 1000 ctfuser` を使用すること。
+- **順序**: 1) FROM, 2) RUN useradd/adduser（ユーザー作成）, 3) **RUN echo flag > flag.txt（フラグファイル作成）**, 4) COPY files, 5) RUN pip install（rootで実行）, 6) USER ctfuser（ユーザー切り替え）, 7) WORKDIR, 8) EXPOSE, 9) CMD
+- **重要**: `USER ctfuser`の前に、必ずユーザー作成コマンド（`RUN useradd`または`RUN adduser`）を実行すること。ユーザーが存在しない状態で`USER ctfuser`を指定すると、コンテナ起動時に「unable to find user ctfuser: no matching entries in passwd file」というエラーが発生する。
+- **フラグファイルの権限**: フラグファイルは`ctfuser`が読み取り可能な権限（644）に設定すること。
+
 **[CRITICAL CONSTRAINTS FOR PYTHON APP]**
 
 1. **ポート設定**: アプリは**必ずポート8000**でリッスンすること。
@@ -295,6 +372,67 @@ class MissionDrafter:
 
 4. **単一ファイル原則**: コードは**SINGLE `app.py` ファイル**で、実行に必要なすべてを含むこと。
    - 外部テンプレートファイル、設定ファイル、静的ファイルは使用しないこと。
+
+5. **render_template_stringの変数渡し**: `render_template_string()`で変数を使用する場合、必ず`**locals()`または明示的に変数を渡すこと。
+   - 正しい例: `render_template_string('Welcome, {{ username }}!', username=user[1])`
+   - 正しい例: `render_template_string('Welcome, {{ user[1] }}!', user=user)`
+   - 間違った例: `render_template_string('Welcome, {{ user[1] }}!')`（user変数が渡されていない）
+   - より安全な方法: `render_template_string('Welcome, {}!'.format(user[1]))`（文字列フォーマットを使用）
+
+6. **SQLi問題の特別な注意事項**:
+   - **CRITICAL: データベースの初期化は必須**: SQLi問題では、必ずデータベースにテーブルを作成し、サンプルデータを挿入すること。
+   - **データベース初期化の例:**
+     ```python
+     def init_db():
+         conn = sqlite3.connect('database.db')
+         conn.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER, username TEXT, password TEXT)')
+         conn.execute("INSERT OR IGNORE INTO users (id, username, password) VALUES (1, 'admin', 'adminpass')")
+         conn.commit()
+         conn.close()
+     
+     # アプリ起動時に初期化
+     if __name__ == '__main__':
+         init_db()
+         app.run(host='0.0.0.0', port=8000)
+     ```
+   - SQLクエリが複数の結果を返す可能性がある場合（例: `' OR 1=1 -- `）、`fetchone()`の代わりに`fetchall()`を使用し、最初の結果を取得すること。
+   - エラーハンドリングを追加して、SQLエラーが発生してもアプリケーションがクラッシュしないようにすること。
+   - 正しい例:
+     ```python
+     try:
+         user = conn.execute(query).fetchone()
+         if user:
+             return render_template_string('Welcome, {}! Flag: {}'.format(user[1], flag))
+         else:
+             return 'Login failed.'
+     except Exception as e:
+         return f'Error: {str(e)}'
+     ```
+
+7. **RCE問題の特別な注意事項**:
+   - **CRITICAL: render_template_stringの変数渡し**: GETリクエストのパラメータ（`request.args.get()`）を使用する場合も、変数を正しく渡すこと。
+   - **正しい例（GETリクエスト）:**
+     ```python
+     @app.route('/run')
+     def run_command():
+         cmd = request.args.get('cmd')
+         if cmd:
+             result = os.popen(cmd).read()
+             return render_template_string('<pre>{}</pre>'.format(result))
+         return 'Command execution is restricted.'
+     ```
+   - **間違った例:**
+     ```python
+     @app.route('/run')
+     def run_command():
+         cmd = request.args.get('cmd')
+         if cmd:
+             result = os.popen(cmd).read()
+             return render_template_string('<pre>{{ result }}</pre>', result=result)  # 変数が渡されていない可能性
+         return 'Command execution is restricted.'
+     ```
+   - **より安全な方法**: 文字列フォーマット（`.format()`）を使用すること。
+   - **sudo権限の注意**: `sudo -u root`を使用する場合、ctfuserにsudo権限がないとエラーになる。通常は`os.popen(cmd)`で直接実行すること。
 
 **[DESIGN & ATMOSPHERE REQUIREMENTS]**
 
@@ -346,12 +484,54 @@ JSON形式のみを返してください。説明文やマークダウンは不�
 
 **[EDUCATIONAL CONTENT REQUIREMENT]**
 
-1. **writeup (必須)**: 初心者にもわかりやすい詳細な解説記事（Writeup）をMarkdown形式で生成すること。
-   - **Introduction**: 脆弱性とは何か？（例: "SQL Injectionとは何か？"）
-   - **Methodology**: この問題を解くためのステップバイステップガイド
-   - **Mitigation**: 実際のコードでこの脆弱性を修正する方法
-   - **Key Takeaways**: ユーザーが学んだことを箇条書きでまとめる
-   - 例: `"writeup": "# SQL Injection Explained\n\n## What is it?...\n\n## Solution...\n\n## Mitigation...\n\n## Key Takeaways..."`
+1. **writeup (必須・最優先制約)**: 初心者でも完全に再現できる、具体的で詳細なステップバイステップチュートリアル（Writeup）をMarkdown形式で生成すること。
+   
+   **【最優先】再現可能なコマンドやペイロードを含む、具体的で詳細な手順を必ず含めること:**
+   - 抽象的な説明は禁止。必ず具体的なコマンド、ペイロード、スクリプトを含めること。
+   - 読者が同じ手順を実行すれば必ず同じ結果が得られること（100%再現可能であること）。
+   - **全編日本語で記述すること。** 英語の専門用語は使用可能だが、説明は日本語で行うこと。
+   - **コマンドの実行手順を具体的に記述すること。** どのコマンドを実行するか、どのディレクトリで実行するか、どのような結果が得られるかを明確に示すこと。
+   - **ブラウザへの入力内容を具体的に記述すること。** どのURLにアクセスするか、どのフォームに何を入力するか、どのボタンをクリックするかを明確に示すこと。
+   
+   **構造（必須）:**
+   - **Introduction（導入）**: 脆弱性とは何か？この問題で学べること（例: "SQL Injectionとは何か？"）
+   - **Methodology（解法・最重要）**: この問題を解くための詳細なステップバイステップガイド
+     - 使用した正確なペイロードを記載すること（例: `' OR '1'='1`）
+     - エクスプロイトが成功したことを確認する出力結果を記載すること（実際の出力例を含める）
+     - フラグを取得するための最終的なコマンドまたはスクリプトを記載すること（完全なコマンド例）
+     - 各ステップで何をすべきか、どのような結果が期待されるかを明確に示すこと
+     - コードブロック（```）を使用して、コマンドやスクリプトを明確に表示すること
+   - **Mitigation（緩和策）**: 実際のコードでこの脆弱性を修正する方法（修正前後のコード例を含める）
+   - **Key Takeaways（まとめ）**: ユーザーが学んだことを箇条書きでまとめる（3-5個の要点）
+   
+   **品質要件（絶対遵守）:**
+   - **再現性（最優先）**: 読者が同じ手順を実行すれば必ず同じ結果が得られること。具体的なコマンド、ペイロード、出力例を含めること。
+   - **具体性（必須）**: 抽象的な説明ではなく、具体的なコマンド、ペイロード、出力例を含めること。
+   - **完全性（必須）**: 最初から最後まで、すべてのステップを網羅すること。
+   - **日本語記述（必須）**: 全編日本語で記述すること。コマンドの実行手順やブラウザへの入力内容を具体的に記述すること。
+   
+   - 例: `"writeup": "# SQL Injection Explained\n\n## Introduction\nSQL Injectionとは...\n\n## Methodology\n### Step 1: 情報収集\nまず、以下のコマンドで...\n\n```bash\ncurl http://target.com/search?q=test'\n```\n\n出力:\n```\nError: syntax error near 'test''\n```\n\n### Step 2: ペイロードの構築\n...\n\n## Mitigation\n修正前:\n```python\nquery = f\"SELECT * FROM users WHERE id = {user_id}\"\n```\n\n修正後:\n```python\nquery = \"SELECT * FROM users WHERE id = %s\"\ncursor.execute(query, (user_id,))\n```\n\n## Key Takeaways\n- SQL Injectionは...\n- 対策として...\n"`
+
+**[EXECUTION ENVIRONMENT PRIORITY]**
+
+1. **If the methodology is simple (e.g., SQLi, XSS, basic IDOR), YOU MUST explain the step using BROWSER INPUT first.**
+   - For SQL Injection: "Step 1: ブラウザでログインページを開き、ユーザー名フォームに `admin' -- ` と入力します。"
+   - For XSS: "Step 1: ブラウザでコメントフォームを開き、メッセージ欄に `<script>alert('XSS')</script>` と入力します。"
+   - For IDOR: "Step 1: ブラウザのURLバーで、`/user?id=1` を `/user?id=2` に変更してアクセスします。"
+   - **優先順位**: ブラウザでの操作説明を最初に記載し、その後で必要に応じてCURLコマンドを補足として記載すること。
+
+2. **If a POST request or complex data is required (like in SSRF, XXE, or advanced RCE cases):**
+   - You MUST provide the full CURL command with complete headers and payload.
+   - You MUST also provide an explanation on how to use tools like **Browser Developer Tools (Network tab)** or a proxy like **Burp Suite** to manually send the POST request.
+   - Alternatively, mention how to create a simple HTML form for testing (より高度な学習内容として組み込む).
+   - Example: "Step 1: ブラウザの開発者ツール（F12）を開き、Networkタブを選択します。フォームを送信し、リクエストを確認します。または、以下のCURLコマンドを使用します："
+   - Example: "Step 1: Burp Suiteなどのプロキシツールを使用してリクエストをインターセプトし、ペイロードを変更します。または、以下のCURLコマンドを使用します："
+
+3. **When using CURL commands:**
+   - You MUST clearly state that the user should execute the command in their own terminal.
+   - You MUST clearly state that the user should replace the placeholder URL (e.g., `http://localhost:8000` or `http://{{CONTAINER_HOST}}`) with their assigned mission URL (e.g., `http://localhost:32804`).
+   - Example: "**注意**: 以下のコマンドを実行する際は、`http://localhost:8000` を実際のミッションURL（例: `http://localhost:32804`）に置き換えてください。"
+   - Example: "**実行方法**: ターミナルで以下のコマンドを実行します。URLは実際のミッションURLに置き換えてください："
 
 2. **tags (必須)**: 問題の種類や難易度を表すタグの配列を生成すること。
    - 例: `["Web", "SQL", "Beginner"]`, `["Network", "RCE", "Advanced"]`
@@ -402,12 +582,33 @@ You MUST also generate a solver script (Python) that demonstrates how to solve t
         
         # Category-specific prompt
         category_prompt = ""
+        flag_placement_reminder = ""
         if category and category_info:
+            mission_type = category_info.get('type', 'Unknown')
+            # Add flag placement reminder based on problem type
+            if mission_type in ["RCE", "LFI", "PrivEsc", "Misconfig"]:
+                flag_placement_reminder = f"""
+**⚠️ CRITICAL FLAG PLACEMENT REMINDER FOR {mission_type} PROBLEMS:**
+- You MUST place the flag at `/home/ctfuser/flag.txt` (NOT `/flag.txt`).
+- Dockerfile MUST contain: `RUN echo "SolCTF{{...}}" > /home/ctfuser/flag.txt && chmod 644 /home/ctfuser/flag.txt`
+- This is a MANDATORY requirement. Do NOT use `/flag.txt` for {mission_type} problems.
+"""
+            elif mission_type in ["SQLi", "XSS", "SSRF", "XXE", "IDOR"]:
+                flag_placement_reminder = f"""
+**⚠️ CRITICAL FLAG PLACEMENT REMINDER FOR {mission_type} PROBLEMS:**
+- You MUST place the flag at `/flag.txt` (root directory) AND set ENV FLAG variable.
+- Dockerfile MUST contain: `ENV FLAG="SolCTF{{...}}"` AND `RUN echo "SolCTF{{...}}" > /flag.txt && chmod 644 /flag.txt`
+- This is a MANDATORY requirement. Do NOT use `/home/ctfuser/flag.txt` for {mission_type} problems.
+"""
+            
             category_prompt = f"""
 **必須カテゴリ:** {category_info['name']} ({category})
 **カテゴリ説明:** {category_info['description']}
 **必須タグ:** {', '.join(category_info['tags'])}
 **視覚テーマ:** {theme}
+**問題タイプ:** {mission_type}
+
+{flag_placement_reminder}
 
 このカテゴリに厳密に従って問題を作成してください。他のカテゴリ（例: SQL Injection）は使用しないでください。
 """
@@ -427,10 +628,14 @@ You MUST also generate a solver script (Python) that demonstrates how to solve t
   - `Dockerfile`: セキュリティ基準（非root実行、ctfuser使用）を守ったDockerfile
   - `requirements.txt`: 必要な依存パッケージ
   - `flag.txt`: flag_answerと同じ値（オプション）
-- **必ず `writeup` フィールドを含め、初心者にもわかりやすい詳細な解説記事（Markdown形式）を生成すること**
+- **必ず `writeup` フィールドを含め、初心者でも完全に再現できる、具体的で詳細なステップバイステップチュートリアル（Markdown形式）を生成すること**
+  - **【最優先】再現可能なコマンドやペイロードを含む、具体的で詳細な手順を必ず含めること**
+  - **全編日本語で記述すること。** 英語の専門用語は使用可能だが、説明は日本語で行うこと。
+  - **コマンドの実行手順を具体的に記述すること。** どのコマンドを実行するか、どのディレクトリで実行するか、どのような結果が得られるかを明確に示すこと。
+  - **ブラウザへの入力内容を具体的に記述すること。** どのURLにアクセスするか、どのフォームに何を入力するか、どのボタンをクリックするかを明確に示すこと。
   - Introduction: 脆弱性とは何か？
-  - Methodology: ステップバイステップの解法ガイド
-  - Mitigation: 実際のコードで修正する方法
+  - Methodology: ステップバイステップの解法ガイド（具体的なコマンド、ペイロード、出力例を含める）
+  - Mitigation: 実際のコードで修正する方法（修正前後のコード例を含める）
   - Key Takeaways: 学んだことを箇条書きでまとめる
 - **必ず `tags` フィールドを含め、問題の種類や難易度を表すタグの配列（2-4個）を生成すること**
   - カテゴリ（Web, Network, Crypto等）、脆弱性タイプ（SQL, RCE, SSRF等）、難易度（Beginner, Intermediate, Advanced等）を含めること
@@ -438,6 +643,273 @@ You MUST also generate a solver script (Python) that demonstrates how to solve t
 - JSON形式のみで返答すること"""
         
         return prompt
+    
+    def _fix_flag_placement(self, mission: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Post-process mission JSON to fix flag placement if incorrect.
+        
+        Args:
+            mission: Mission JSON dictionary
+            
+        Returns:
+            Fixed mission JSON dictionary
+        """
+        problem_type = mission.get("type", "").upper()
+        flag_answer = mission.get("flag_answer", "")
+        files = mission.get("files", {})
+        dockerfile = files.get("Dockerfile", "")
+        
+        if not dockerfile or not flag_answer:
+            return mission
+        
+        # Rule #1: RCE / LFI / PrivEsc / Misconfig → /home/ctfuser/flag.txt
+        if problem_type in ["RCE", "LFI", "PRIVESC", "MISCONFIG"]:
+            # Check if flag is incorrectly placed at /flag.txt
+            if "/flag.txt" in dockerfile and "/home/ctfuser/flag.txt" not in dockerfile:
+                # Fix: Replace /flag.txt with /home/ctfuser/flag.txt
+                import re
+                # Replace RUN echo ... > /flag.txt with /home/ctfuser/flag.txt
+                dockerfile = re.sub(
+                    r'RUN\s+echo\s+"([^"]+)"\s+>\s+/flag\.txt',
+                    rf'RUN echo "\1" > /home/ctfuser/flag.txt',
+                    dockerfile
+                )
+                dockerfile = re.sub(
+                    r'RUN\s+echo\s+([^\s>]+)\s+>\s+/flag\.txt',
+                    r'RUN echo \1 > /home/ctfuser/flag.txt',
+                    dockerfile
+                )
+                # Ensure chmod is also updated
+                if "chmod" in dockerfile and "/home/ctfuser/flag.txt" in dockerfile:
+                    dockerfile = re.sub(
+                        r'chmod\s+\d+\s+/flag\.txt',
+                        'chmod 644 /home/ctfuser/flag.txt',
+                        dockerfile
+                    )
+                files["Dockerfile"] = dockerfile
+                mission["files"] = files
+                logger.info(f"Fixed flag placement for {problem_type}: moved from /flag.txt to /home/ctfuser/flag.txt")
+        
+        # Rule #2: Web problems (SQLi / XSS / SSRF / XXE / IDOR) → /flag.txt + ENV
+        elif problem_type in ["SQLI", "XSS", "SSRF", "XXE", "IDOR"]:
+            # Check if flag is incorrectly placed at /home/ctfuser/flag.txt
+            if "/home/ctfuser/flag.txt" in dockerfile and "/flag.txt" not in dockerfile:
+                # Fix: Replace /home/ctfuser/flag.txt with /flag.txt
+                import re
+                # Replace RUN echo ... > /home/ctfuser/flag.txt with /flag.txt
+                dockerfile = re.sub(
+                    r'RUN\s+echo\s+"([^"]+)"\s+>\s+/home/ctfuser/flag\.txt',
+                    rf'RUN echo "\1" > /flag.txt',
+                    dockerfile
+                )
+                dockerfile = re.sub(
+                    r'RUN\s+echo\s+([^\s>]+)\s+>\s+/home/ctfuser/flag\.txt',
+                    r'RUN echo \1 > /flag.txt',
+                    dockerfile
+                )
+                # Ensure ENV FLAG is set
+                if "ENV FLAG" not in dockerfile and "ENV FLAG=" not in dockerfile:
+                    # Add ENV FLAG before the RUN echo command
+                    flag_value = flag_answer
+                    env_line = f'ENV FLAG="{flag_value}"\n'
+                    # Find the line with RUN echo ... > /flag.txt and add ENV before it
+                    lines = dockerfile.split('\n')
+                    new_lines = []
+                    env_added = False
+                    for line in lines:
+                        if not env_added and "RUN echo" in line and "/flag.txt" in line:
+                            new_lines.append(env_line)
+                            env_added = True
+                        new_lines.append(line)
+                    dockerfile = '\n'.join(new_lines)
+                files["Dockerfile"] = dockerfile
+                mission["files"] = files
+                logger.info(f"Fixed flag placement for {problem_type}: moved from /home/ctfuser/flag.txt to /flag.txt and added ENV FLAG")
+        
+        return mission
+    
+    def _fix_database_initialization(self, mission: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Post-process mission JSON to fix database initialization for SQLi problems.
+        
+        Args:
+            mission: Mission JSON dictionary
+            
+        Returns:
+            Fixed mission JSON dictionary
+        """
+        problem_type = mission.get("type", "").upper()
+        files = mission.get("files", {})
+        app_code = files.get("app.py", "")
+        
+        if problem_type != "SQLI" or not app_code:
+            return mission
+        
+        # Check if database initialization exists
+        has_init = (
+            "CREATE TABLE" in app_code or
+            "init_db" in app_code or
+            "initialize" in app_code.lower()
+        )
+        
+        # Check if sqlite3 is used
+        uses_sqlite = "sqlite3" in app_code
+        
+        if uses_sqlite and not has_init:
+            # Add database initialization
+            import re
+            
+            # Find the main block
+            if "if __name__ == '__main__':" in app_code:
+                # Add init_db function before the main block
+                init_function = """
+def init_db():
+    import sqlite3
+    conn = sqlite3.connect('database.db')
+    conn.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER, username TEXT, password TEXT)')
+    conn.execute("INSERT OR IGNORE INTO users (id, username, password) VALUES (1, 'admin', 'adminpass')")
+    conn.commit()
+    conn.close()
+"""
+                
+                # Insert init_db function before the main block
+                app_code = app_code.replace(
+                    "if __name__ == '__main__':",
+                    f"{init_function}\nif __name__ == '__main__':"
+                )
+                
+                # Add init_db() call in the main block
+                if "app.run(" in app_code:
+                    app_code = re.sub(
+                        r'(if __name__ == \'__main__\':\s*\n\s*)app\.run\(',
+                        r'\1init_db()\n    app.run(',
+                        app_code
+                    )
+                
+                files["app.py"] = app_code
+                mission["files"] = files
+                logger.info("Fixed database initialization for SQLi problem: added init_db() function")
+        
+        return mission
+    
+    def _fix_render_template_string(self, mission: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Post-process mission JSON to fix render_template_string issues.
+        
+        Args:
+            mission: Mission JSON dictionary
+            
+        Returns:
+            Fixed mission JSON dictionary
+        """
+        files = mission.get("files", {})
+        app_code = files.get("app.py", "")
+        
+        if not app_code:
+            return mission
+        
+        import re
+        fixed_code = app_code
+        
+        # Fix: render_template_string with {{ variable }} but variable not passed correctly
+        # Convert to .format() method which is more reliable
+        # Pattern: render_template_string('...{{ result }}...', result=result) -> render_template_string('...{}...'.format(result))
+        patterns_to_fix = [
+            (r"render_template_string\s*\(\s*'([^']*)\{\{\s*result\s*\}\}([^']*)'\s*,\s*result\s*=\s*result\s*\)",
+             r"render_template_string('\1{}\2'.format(result))"),
+            (r"render_template_string\s*\(\s*'([^']*)\{\{\s*output\s*\}\}([^']*)'\s*,\s*output\s*=\s*output\s*\)",
+             r"render_template_string('\1{}\2'.format(output))"),
+            (r"render_template_string\s*\(\s*'([^']*)\{\{\s*user\s*\}\}([^']*)'\s*,\s*user\s*=\s*user\s*\)",
+             r"render_template_string('\1{}\2'.format(user))"),
+        ]
+        
+        for pattern, replacement in patterns_to_fix:
+            if re.search(pattern, fixed_code):
+                fixed_code = re.sub(pattern, replacement, fixed_code)
+                logger.info("Fixed render_template_string: converted to .format() method")
+        
+        # Fix: Remove sudo -u root (ctfuser doesn't have sudo permissions)
+        if "sudo -u root" in fixed_code:
+            # Replace various patterns of sudo -u root
+            fixed_code = re.sub(
+                r"os\.popen\(f?'sudo -u root \{command\}'\)",
+                "os.popen(command)",
+                fixed_code
+            )
+            fixed_code = re.sub(
+                r"os\.popen\(f?'sudo -u root \{cmd\}'\)",
+                "os.popen(cmd)",
+                fixed_code
+            )
+            fixed_code = re.sub(
+                r"os\.popen\(f?\"sudo -u root \{command\}\"\)",
+                "os.popen(command)",
+                fixed_code
+            )
+            fixed_code = re.sub(
+                r"os\.popen\(f?\"sudo -u root \{cmd\}\"\)",
+                "os.popen(cmd)",
+                fixed_code
+            )
+            # Also handle cases without f-string
+            fixed_code = re.sub(
+                r"os\.popen\('sudo -u root ' \+ command\)",
+                "os.popen(command)",
+                fixed_code
+            )
+            fixed_code = re.sub(
+                r"os\.popen\('sudo -u root ' \+ cmd\)",
+                "os.popen(cmd)",
+                fixed_code
+            )
+            if "sudo -u root" not in fixed_code:
+                logger.info("Fixed: Removed sudo -u root (ctfuser doesn't have sudo permissions)")
+        
+        if fixed_code != app_code:
+            files["app.py"] = fixed_code
+            mission["files"] = files
+        
+        return mission
+    
+    def _extract_visible_html(self, app_code: str) -> str:
+        """
+        Extract HTML that would be visible to an attacker (without source code access).
+        
+        Args:
+            app_code: Python application code
+            
+        Returns:
+            HTML content visible to attacker
+        """
+        import re
+        
+        # Extract HTML from render_template_string calls
+        html_parts = []
+        
+        # Pattern 1: render_template_string('''...''')
+        pattern1 = r"render_template_string\s*\(\s*'''([^']+)'''"
+        matches = re.findall(pattern1, app_code, re.DOTALL)
+        html_parts.extend(matches)
+        
+        # Pattern 2: render_template_string("""...""")
+        pattern2 = r'render_template_string\s*\(\s*"""([^"]+)"""'
+        matches = re.findall(pattern2, app_code, re.DOTALL)
+        html_parts.extend(matches)
+        
+        # Pattern 3: return '''...'''
+        pattern3 = r"return\s+'''([^']+)'''"
+        matches = re.findall(pattern3, app_code, re.DOTALL)
+        html_parts.extend(matches)
+        
+        # Pattern 4: return """..."""
+        pattern4 = r'return\s+"""([^"]+)"""'
+        matches = re.findall(pattern4, app_code, re.DOTALL)
+        html_parts.extend(matches)
+        
+        if html_parts:
+            return '\n\n---\n\n'.join(html_parts)
+        else:
+            return "HTML情報を抽出できませんでした。実際のコンテナにアクセスして確認してください。"
     
     def _generate_with_ai(self, difficulty: Optional[int] = None, mission_type: Optional[str] = None, category: Optional[str] = None, theme: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -508,6 +980,15 @@ You MUST also generate a solver script (Python) that demonstrates how to solve t
                 random_suffix = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
                 mission["flag_answer"] = f"SolCTF{{{random_suffix}}}"
             
+            # Post-process: Fix flag placement if incorrect
+            mission = self._fix_flag_placement(mission)
+            
+            # Post-process: Fix database initialization for SQLi problems
+            mission = self._fix_database_initialization(mission)
+            
+            # Post-process: Fix render_template_string issues for RCE problems
+            mission = self._fix_render_template_string(mission)
+            
             # Ensure files object is present (generate fallback if missing)
             if "files" not in mission or not mission.get("files"):
                 # Fallback: Generate minimal files if AI didn't generate them
@@ -529,6 +1010,7 @@ ENV CTF_FLAG={flag_value}
 CMD ["python3", "app.py"]
 """
                 else:
+                    # For python:3.11-slim, use useradd without -s /bin/bash (bash may not be installed)
                     dockerfile_content = f"""FROM {base_image}
 RUN useradd -m -u 1000 ctfuser
 COPY app.py requirements.txt /home/ctfuser/
@@ -800,6 +1282,295 @@ To fix this vulnerability in real code, ensure proper input validation and sanit
         }
         
         return mission
+    
+    def regenerate_writeup(self, mission_json: Dict[str, Any], container_url: str, api_key: Optional[str] = None) -> Optional[str]:
+        """
+        Regenerate writeup with actual container URL.
+        
+        Args:
+            mission_json: Mission JSON dictionary
+            container_url: Actual container URL (e.g., "http://localhost:32804")
+            api_key: OpenAI API key (if None, uses instance key)
+            
+        Returns:
+            New writeup content or None on failure
+        """
+        if api_key:
+            client = OpenAI(api_key=api_key)
+        else:
+            client = self.client
+        
+        mission_type = mission_json.get("type", "Unknown")
+        mission_id = mission_json.get("mission_id", "UNKNOWN")
+        flag_answer = mission_json.get("flag_answer", "")
+        
+        system_prompt = """あなたは、CTF問題の解説記事を書く専門家です。
+
+実際に動作するコンテナのURLを使って、初心者でも完全に再現できる、具体的で詳細なステップバイステップチュートリアル（Writeup）をMarkdown形式で生成してください。
+
+**重要な制約:**
+1. 実際のコンテナURL（例: http://localhost:32804）を使用すること
+2. 全編日本語で記述すること
+3. 再現可能なコマンドやペイロードを含む、具体的で詳細な手順を必ず含めること
+4. ブラウザでの操作説明を優先し、必要に応じてCURLコマンドを補足として記載すること
+5. 各ステップで何をすべきか、どのような結果が期待されるかを明確に示すこと
+6. **解説のボリュームは多めにすること** - 読者がいろいろ試せるように、複数のアプローチや手順を紹介すること
+7. **適切な位置で改行すること** - 見やすくするため、段落を適切に分けること
+
+**[CRITICAL: EXPLORATION-BASED METHODOLOGY - 探索ベースの解法]**
+
+**最重要:** 解説は「基本形から始めて、探索を通じて発見する」形式で記述すること。
+
+1. **基本形の操作から始める:**
+   - まず、最も基本的で直感的な操作を試す（例: `ls`、`cat flag.txt`、`cat /flag.txt`）
+   - この操作の結果（成功または失敗）を記載する
+   - 成功した場合と失敗した場合の両方のシナリオを想定する
+
+2. **失敗した場合の探索プロセス（重要）:**
+   - 基本形の操作が失敗した場合、なぜ失敗したのかを考える
+   - 現在の状況を確認する（例: `pwd`で現在のディレクトリを確認）
+   - 周辺を探索する（例: 親ディレクトリを見る、他のディレクトリを確認する）
+   - **複数の探索手順を紹介する** - 読者がいろいろ試せるように
+   - 段階的に探索範囲を広げる
+   - 各探索ステップで「なぜこの操作が必要なのか」を説明する
+
+3. **発見と解決:**
+   - 探索を通じてフラグの場所を発見する
+   - なぜその場所にあるのかを説明する
+   - **最終的なフラグ取得方法を記載する（フラグそのものではなく、操作手順）**
+   - 「これで一応回答がゲットできます」という形で記載する
+
+4. **環境情報の説明（重要）:**
+   - **裏でデータベースなどの情報がどうなっているのかを明記する**
+   - 例: 「この問題では、SQLiteデータベースが使用されており、`users`テーブルには`admin`ユーザーが登録されています」
+   - 例: 「フラグは`/home/ctfuser/flag.txt`に配置されており、ctfuser権限で読み取り可能です」
+   - **構築された環境から、このコマンドでこの情報を抜いていたり、この場所にアクセスしていたりするという説明を追加**
+   - 例: 「`cat /home/ctfuser/flag.txt`コマンドを実行することで、ctfuserのホームディレクトリに配置されたフラグファイルにアクセスできます」
+
+5. **教育的価値の説明:**
+   - 「基本形から少し形が変わっている」ことを明示する
+   - 「追加の操作が必要な理由」を説明する
+   - 「探索の重要性」を強調する
+
+**構造（詳細版）:**
+- Introduction: 脆弱性とは何か？この問題で学べること
+- Environment Overview: 環境情報（データベース、ファイル構造、権限など）
+- Methodology: ステップバイステップの解法ガイド
+  - **Step 1: 基本形の操作を試す**（例: `ls`、`cat flag.txt`）
+    - 結果: 成功または失敗
+  - **Step 2: 失敗した場合の探索（複数の手順を紹介）**
+    - 手順A: `pwd`で現在地を確認
+    - 手順B: `ls /`でルートディレクトリを確認
+    - 手順C: `ls /home`でホームディレクトリを確認
+    - 手順D: `ls /home/ctfuser`でユーザーディレクトリを確認
+    - 各手順で「なぜこの操作が必要なのか」を説明
+  - **Step 3: 発見と解決**
+    - フラグの場所を発見
+    - 最終的なフラグ取得方法を記載（フラグそのものではなく、操作手順）
+    - 「これで一応回答がゲットできます」という形で記載
+- Mitigation: 実際のコードで修正する方法
+- Key Takeaways: 学んだことを箇条書きでまとめる
+
+**出力形式:**
+Markdown形式の文字列のみを返してください。JSONやその他の形式は不要です。
+**適切な位置で改行し、見やすくすること。**"""
+        
+        # Extract actual code to analyze flag location
+        files = mission_json.get("files", {})
+        app_code = files.get("app.py", "")
+        dockerfile = files.get("Dockerfile", "")
+        
+        # Analyze how flag is accessed
+        flag_location_hint = ""
+        if "CTF_FLAG" in app_code or "os.getenv" in app_code or "environ" in app_code:
+            flag_location_hint = "フラグは環境変数CTF_FLAGとして設定されています。コード内でos.getenv('CTF_FLAG')またはos.environ['CTF_FLAG']で取得されている可能性があります。"
+        elif "flag.txt" in dockerfile and "COPY flag.txt" in dockerfile:
+            flag_location_hint = "フラグはflag.txtファイルとして配置されています。"
+        elif "flag.txt" in files:
+            flag_location_hint = "フラグはflag.txtファイルとして定義されていますが、Dockerfileでコピーされていない可能性があります。実際のコードを確認して、フラグの取得方法を特定してください。"
+        else:
+            flag_location_hint = "フラグの配置場所をコードから確認してください。環境変数、ファイル、データベース、またはAPIエンドポイントのいずれかに配置されている可能性があります。"
+        
+        user_prompt = f"""以下のCTF問題の解説記事を生成してください。
+
+**重要: 解く側の視点で解説を生成すること**
+- 解く側は**ソースコードを見ることができません**
+- 解く側が見える情報は、**ブラウザで表示されるHTMLとレスポンスのみ**です
+- コード内の変数名（例: SECRET_MESSAGE）や実装詳細は、解く側には見えません
+- 解説には、**実際にブラウザで見える情報のみ**を基にした解法を記載してください
+
+**[CRITICAL: EXPLORATION-BASED METHODOLOGY - 探索ベースの解法]**
+
+**最重要:** 解説は「基本形から始めて、探索を通じて発見する」形式で記述すること。
+
+1. **基本形の操作から始める:**
+   - まず、最も基本的で直感的な操作を試す
+   - 例（RCE問題）: `ls`を実行して、現在のディレクトリの内容を確認
+   - 例（SQLi問題）: 基本的なログイン試行
+   - この操作が成功する場合と失敗する場合の両方を想定する
+
+2. **失敗した場合の探索プロセス:**
+   - 基本形の操作が失敗した場合、なぜ失敗したのかを考える
+   - 現在の状況を確認する（例: `pwd`で現在のディレクトリを確認）
+   - 周辺を探索する（例: 親ディレクトリを見る、他のディレクトリを確認する）
+   - 段階的に探索範囲を広げる
+   - 例（RCE問題）:
+     - `ls`でファイルが見つからない
+     - `pwd`で現在地を確認（例: `/home/ctfuser`）
+     - `ls /`でルートディレクトリを確認
+     - `ls /home`でホームディレクトリを確認
+     - `ls /home/ctfuser`でユーザーディレクトリを確認
+     - `cat /home/ctfuser/flag.txt`でフラグを取得
+
+3. **発見と解決:**
+   - 探索を通じてフラグの場所を発見する
+   - なぜその場所にあるのかを説明する
+   - 最終的なフラグ取得方法を記載する
+
+4. **教育的価値の説明:**
+   - 「基本形から少し形が変わっている」ことを明示する
+   - 「追加の操作が必要な理由」を説明する
+   - 「探索の重要性」を強調する
+   - 例: 「この問題は、基本的な`ls`コマンドだけではフラグファイルが見つからないように設計されています。これは、CTF問題でよく見られる『探索が必要な問題』の一例です。実際のセキュリティ調査でも、最初の試行が失敗した場合、周辺を探索して情報を収集することが重要です。」
+
+**問題情報:**
+- タイプ: {mission_type}
+- ミッションID: {mission_id}
+- コンテナURL（参考）: {container_url}
+- フラグ: {flag_answer}
+
+**解く側が見える情報（HTML）:**
+以下は、解く側がブラウザで実際に見ることができる情報です。この情報のみを基に解説を生成してください。
+```
+{self._extract_visible_html(app_code) if app_code else "HTML情報が取得できませんでした"}
+```
+
+**注意事項:**
+- 「コードを見るとわかる」という記述は**絶対に使用しないこと**
+- コード内の変数名や実装詳細を説明に含めないこと
+- 解く側が実際にブラウザで見える情報のみを基にした解法を記載すること
+- 推測や試行錯誤のプロセスを含めること（例: 「様々なキーを試してみる」「HTMLを確認してヒントを探す」）
+
+**Dockerfile:**
+```
+{dockerfile[:1000] if len(dockerfile) > 1000 else dockerfile}
+```
+
+**フラグの配置に関する情報:**
+{flag_location_hint}
+
+**既存のwriteup（参考）:**
+{mission_json.get('writeup', 'なし')}
+
+初心者でも完全に再現できる、具体的で詳細なステップバイステップチュートリアルを生成してください。
+
+**[CRITICAL: EXPLORATION-BASED METHODOLOGY - 探索ベースの解法]**
+
+**最重要:** 解説は「基本形から始めて、探索を通じて発見する」形式で記述すること。
+
+1. **基本形の操作から始める:**
+   - まず、最も基本的で直感的な操作を試す
+   - 例（RCE問題）: `ls`を実行して、現在のディレクトリの内容を確認
+   - 例（SQLi問題）: 基本的なログイン試行
+   - この操作の結果（成功または失敗）を記載する
+
+2. **失敗した場合の探索プロセス（重要）:**
+   - 基本形の操作が失敗した場合、なぜ失敗したのかを考える
+   - 現在の状況を確認する（例: `pwd`で現在のディレクトリを確認）
+   - 周辺を探索する（例: 親ディレクトリを見る、他のディレクトリを確認する）
+   - 段階的に探索範囲を広げる
+   - **各探索ステップで「なぜこの操作が必要なのか」を説明する**
+   - 例（RCE問題で`ls`でファイルが見つからない場合）:
+     ```
+     Step 1: 基本形の操作を試す
+     - `ls`を実行
+     - 結果: app.py と requirements.txt しか表示されない（flag.txtが見つからない）
+     
+     Step 2: 現在の状況を確認
+     - `pwd`を実行して現在のディレクトリを確認
+     - 結果: /home/ctfuser にいることがわかる
+     
+     Step 3: 周辺を探索
+     - `ls /`でルートディレクトリを確認
+     - `ls /home`でホームディレクトリを確認
+     - `ls /home/ctfuser`でユーザーディレクトリを再確認
+     - 結果: /home/ctfuser/flag.txt が見つかる
+     
+     Step 4: フラグを取得
+     - `cat /home/ctfuser/flag.txt`でフラグを取得
+     ```
+
+3. **教育的価値の説明:**
+   - 「この問題は、基本的な`ls`コマンドだけではフラグファイルが見つからないように設計されています」
+   - 「これは、CTF問題でよく見られる『探索が必要な問題』の一例です」
+   - 「実際のセキュリティ調査でも、最初の試行が失敗した場合、周辺を探索して情報を収集することが重要です」
+   - 「基本形から少し形が変わっているため、追加の操作（探索）が必要になります」
+
+**[CRITICAL: 解説のボリュームと構成]**
+
+**最重要:** 解説は**ボリュームを多めに**し、読者が**いろいろ試せる**ようにすること。
+
+1. **環境情報セクションを追加:**
+   - データベースの構造（テーブル名、カラム名、サンプルデータ）
+   - ファイル構造（フラグの配置場所、権限）
+   - アプリケーションの構成（エンドポイント、パラメータ名）
+   - 例: 「この問題では、SQLiteデータベース（`database.db`）が使用されています。`users`テーブルには以下のデータが登録されています：
+     - id: 1, username: 'admin', password: 'adminpass'
+     - id: 2, username: 'user', password: 'userpass'
+   フラグは環境変数`FLAG`として設定されており、値は`SolCTF{...}`です。」
+
+2. **複数の探索手順を紹介:**
+   - 基本形の操作から始める
+   - 失敗した場合の複数の探索手順を紹介
+   - 各手順で「なぜこの操作が必要なのか」を説明
+   - 読者がいろいろ試せるように、複数のアプローチを提示
+
+3. **最終的なフラグ取得方法:**
+   - **フラグそのものではなく、フラグが獲得できる最終的な操作を記載**
+   - 「これで一応回答がゲットできます」という形で記載
+   - 例: 「`cat /home/ctfuser/flag.txt`コマンドを実行することで、フラグを取得できます。これで一応回答がゲットできます。」
+
+4. **環境と操作の関連性を説明:**
+   - **構築された環境から、このコマンドでこの情報を抜いていたり、この場所にアクセスしていたりするという説明を追加**
+   - 例: 「この問題では、フラグが`/home/ctfuser/flag.txt`に配置されています。`cat /home/ctfuser/flag.txt`コマンドを実行することで、このファイルにアクセスし、フラグを取得できます。このファイルは、Dockerfileの`RUN echo ... > /home/ctfuser/flag.txt`コマンドで作成されています。」
+
+5. **適切な改行:**
+   - 見やすくするため、適切な位置で改行すること
+   - 段落を適切に分けること
+   - コードブロックの前後には空行を入れること
+
+**重要な制約:**
+- **実際のコード（app.py）を確認して、フラグの取得方法を正確に特定すること**
+  - コード内でフラグがどのように取得されているか（環境変数、ファイル、APIエンドポイントなど）を確認
+  - フラグが存在しない場所（例: flag.txtファイル）を指定しないこと
+  - 実際のコードに基づいて、正確なフラグ取得手順を記載すること
+- **URLの部分は必ず `{{CONTAINER_HOST}}` というプレースホルダーを使用すること**
+  - 例: `http://{{CONTAINER_HOST}}/debug` や `curl http://{{CONTAINER_HOST}}/api/flag`
+  - 実際のURL（{container_url}）や内部IPアドレス（192.168.x.x や 172.x.x.x）は使用しないこと
+  - このプレースホルダーは、ユーザーが問題をINITIALIZEした際に実際のポート番号に置き換えられます
+- ブラウザでの操作説明を優先すること
+- 全編日本語で記述すること
+- 再現可能なコマンドやペイロードを含む、具体的で詳細な手順を必ず含めること
+- **コードに基づいて、実際に動作する手順のみを記載すること**
+- **解説のボリュームは多めにすること** - 読者がいろいろ試せるように、複数のアプローチや手順を紹介すること"""
+        
+        try:
+            response = client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.7,
+                max_tokens=4000
+            )
+            
+            new_writeup = response.choices[0].message.content.strip()
+            return new_writeup
+            
+        except Exception as e:
+            print(f"[ERROR] Failed to regenerate writeup: {e}", file=sys.stderr)
+            return None
     
     def draft(self, difficulty: int = None, max_retries: int = 3, verbose: bool = False, category: Optional[str] = None, theme: Optional[str] = None) -> Tuple[bool, str, Dict[str, Any]]:
         """
