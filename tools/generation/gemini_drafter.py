@@ -484,6 +484,12 @@ Create a CTF challenge based strictly on the provided technical description belo
                 if "flag_txt" in files_data and "flag.txt" not in files_data:
                     files_data["flag.txt"] = files_data.pop("flag_txt")
             
+            # Gemini APIがリスト形式で返す場合があるため、チェック
+            if isinstance(data, list):
+                if len(data) == 0:
+                    raise ValueError("Gemini API returned an empty list")
+                data = data[0]  # 最初の要素を取得
+            
             # Pydanticモデルで検証（populate_by_name=Trueにより、app.pyとapp_pyの両方を受け入れる）
             mission = CTFMission(**data)
             # 出力時はaliasを使用
