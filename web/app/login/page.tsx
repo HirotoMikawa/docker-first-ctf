@@ -38,6 +38,52 @@ export default function LoginPage() {
     }
   };
 
+  const handleGuestLogin = async () => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      // ゲストアカウントの認証情報（環境変数から取得、デフォルトあり）
+      const guestEmail = process.env.NEXT_PUBLIC_GUEST_EMAIL || 'guest@sol-ctf.local';
+      const guestPassword = process.env.NEXT_PUBLIC_GUEST_PASSWORD || 'guest123';
+      
+      const { error } = await supabase.auth.signInWithPassword({
+        email: guestEmail,
+        password: guestPassword,
+      });
+      
+      if (error) {
+        // ゲストユーザーが存在しない場合、自動作成を試みる
+        const { error: signUpError } = await supabase.auth.signUp({
+          email: guestEmail,
+          password: guestPassword,
+          options: {
+            data: {
+              display_name: 'Guest User',
+            },
+          },
+        });
+        
+        if (signUpError) throw signUpError;
+        
+        // 作成後、再度ログイン
+        const { error: retryError } = await supabase.auth.signInWithPassword({
+          email: guestEmail,
+          password: guestPassword,
+        });
+        
+        if (retryError) throw retryError;
+      }
+      
+      // ログイン成功後、トップページにリダイレクト
+      router.push('/');
+      router.refresh();
+    } catch (err: any) {
+      setError(err.message || 'ゲストログインに失敗しました');
+      setIsLoading(false);
+    }
+  };
+
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center p-4 font-mono">
       {/* Header / Identity */}
@@ -124,6 +170,37 @@ export default function LoginPage() {
               )}
             </Button>
           </form>
+
+          {/* Divider */}
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t border-zinc-800" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-zinc-900 px-2 text-zinc-500">または</span>
+            </div>
+          </div>
+
+          {/* Guest Login Button */}
+          <Button
+            type="button"
+            onClick={handleGuestLogin}
+            disabled={isLoading}
+            variant="outline"
+            className="w-full border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/10 hover:border-emerald-500/40"
+          >
+            {isLoading ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                GUEST MODE...
+              </>
+            ) : (
+              <>
+                <Shield className="w-4 h-4 mr-2" />
+                ゲストとして始める
+              </>
+            )}
+          </Button>
         </CardContent>
       </Card>
 
