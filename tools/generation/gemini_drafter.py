@@ -584,11 +584,11 @@ Create a CTF challenge based strictly on the provided technical description belo
     
     def regenerate_writeup(self, mission_json: Dict[str, Any], container_url: str, api_key: Optional[str] = None) -> Optional[str]:
         """
-        Writeupを再生成（実際のコンテナURLを含める）
+        Writeupを再生成（環境非依存のプレースホルダーを使用）
         
         Args:
             mission_json: ミッションJSONデータ
-            container_url: 実際のコンテナURL
+            container_url: 実際のコンテナURL（例: http://localhost:32782）
             api_key: APIキー（オプション）
             
         Returns:
@@ -614,19 +614,33 @@ Create a CTF challenge based strictly on the provided technical description belo
             flag_answer = mission_json.get("flag_answer", "")
             original_writeup = mission_json.get("writeup", "")
             
-            prompt = f"""以下のCTF問題のwriteup（解説）を、実際のコンテナURLを含めて再生成してください。
+            # コンテナURLからポート番号を抽出し、環境非依存のプレースホルダーを使用
+            # 例: http://localhost:32782 → http://{{CONTAINER_HOST}}:32782
+            import re
+            port_match = re.search(r':(\d+)$', container_url)
+            if port_match:
+                port = port_match.group(1)
+                placeholder_url = f"http://{{{{CONTAINER_HOST}}}}:{port}"
+            else:
+                placeholder_url = container_url  # フォールバック
+            
+            prompt = f"""以下のCTF問題のwriteup（解説）を、プレースホルダーを使用して再生成してください。
 
 **問題タイプ**: {mission_type}
 **フラグ**: {flag_answer}
-**コンテナURL**: {container_url}
+**コンテナURL**: {placeholder_url}
+**ポート番号**: {port_match.group(1) if port_match else "不明"}
+
+**重要**: URLには必ず {{{{CONTAINER_HOST}}}} プレースホルダーを使用してください（例: http://{{{{CONTAINER_HOST}}}}:{port_match.group(1) if port_match else "XXXXX"}）
 
 **要件:**
 1. **すべて日本語で記述してください**（英語の専門用語は使用可能ですが、説明は日本語）
-2. 元のwriteupの内容を保持しつつ、実際のコンテナURL（{container_url}）を反映してください
+2. 元のwriteupの内容を保持しつつ、プレースホルダーURL（{placeholder_url}）を反映してください
 3. 探索ベースの詳細な解法を含めてください
-4. 具体的な手順とコマンドを含めてください（実際のコンテナURLを使用）
+4. 具体的な手順とコマンドを含めてください（プレースホルダーURLを使用）
 5. Markdown形式で出力してください
 6. 禁止用語（"Great", "Good luck", "Happy", "Sorry", "Please", "I think", "Feel", "Hope", "!"）を使用しないでください
+7. **URLは必ず http://{{{{CONTAINER_HOST}}}}:ポート番号 の形式にしてください**
 
 **元のwriteup（参考）:**
 {original_writeup[:500]}...

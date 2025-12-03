@@ -451,8 +451,30 @@ def list_challenges(
         )
         
         # DBのidカラムをchallenge_idとしてマッピング
+        # CONTAINER_HOSTを取得して、writeup内のプレースホルダーまたはlocalhostを置換
+        container_host = os.getenv("CONTAINER_HOST") or os.getenv("API_HOST") or "localhost"
+        container_host = container_host.strip()
+        if not container_host or container_host == "0.0.0.0":
+            container_host = "localhost"
+        # プロトコルと末尾スラッシュを除去
+        if container_host.startswith("http://"):
+            container_host = container_host[7:]
+        elif container_host.startswith("https://"):
+            container_host = container_host[8:]
+        if container_host.endswith("/"):
+            container_host = container_host[:-1]
+        
         result = []
         for challenge in challenges_sorted:
+            writeup = challenge.get("writeup")
+            # writeup内のプレースホルダーまたはlocalhostを実際のホスト名に置換
+            if writeup:
+                # {{CONTAINER_HOST}} プレースホルダーを置換
+                writeup = writeup.replace("{{CONTAINER_HOST}}", container_host)
+                # http://localhost: パターンを置換（既存のデータ対応）
+                import re
+                writeup = re.sub(r'http://localhost:', f'http://{container_host}:', writeup)
+            
             challenge_data = {
                 "challenge_id": challenge.get("id"),  # DBのidをchallenge_idとして設定
                 "title": challenge.get("title", ""),
@@ -460,7 +482,7 @@ def list_challenges(
                 "difficulty": challenge.get("difficulty"),
                 "points": challenge.get("points"),
                 "category": None,  # 存在しないカラムのため明示的にNone
-                "writeup": challenge.get("writeup"),  # Educational writeup
+                "writeup": writeup,  # 置換済みの writeup
             }
             challenge_info = ChallengeInfo(**challenge_data)
             result.append(challenge_info)

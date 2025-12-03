@@ -8,6 +8,7 @@ Used to generate accurate writeups with actual container URLs.
 import json
 import time
 import logging
+import os
 from typing import Dict, Any, Optional, Tuple
 from pathlib import Path
 import sys
@@ -117,7 +118,9 @@ class ContainerTester:
                         port_info = container.ports['8000/tcp']
                         if port_info and len(port_info) > 0:
                             port = int(port_info[0]['HostPort'])
-                            container_url = f"http://localhost:{port}"
+                            # Use CONTAINER_HOST environment variable (defaults to localhost)
+                            container_host = os.getenv('CONTAINER_HOST', 'localhost')
+                            container_url = f"http://{container_host}:{port}"
                     
                     # Wait for container to be ready (check if it responds)
                     if HAS_REQUESTS:
@@ -164,7 +167,9 @@ class ContainerTester:
                                 port_info = container.ports['8000/tcp']
                                 if port_info and len(port_info) > 0:
                                     port = int(port_info[0]['HostPort'])
-                                    container_url = f"http://localhost:{port}"
+                                    # Use CONTAINER_HOST environment variable (defaults to localhost)
+                                    container_host = os.getenv('CONTAINER_HOST', 'localhost')
+                                    container_url = f"http://{container_host}:{port}"
                             time.sleep(5)
                             return container_id, port, container_url
                         except Exception as e2:
@@ -229,7 +234,9 @@ class ContainerTester:
                                 right_side = port_line.split("->")[1].strip()
                                 port_str = right_side.split(":")[1].strip()
                                 port = int(port_str)
-                                container_url = f"http://localhost:{port}"
+                                # Use CONTAINER_HOST environment variable (defaults to localhost)
+                                container_host = os.getenv('CONTAINER_HOST', 'localhost')
+                                container_url = f"http://{container_host}:{port}"
                                 break
                             except (ValueError, IndexError) as e:
                                 print(f"[WARNING] Failed to parse port from line: {port_line}", file=sys.stderr)
