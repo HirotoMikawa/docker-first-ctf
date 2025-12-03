@@ -2,43 +2,14 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Terminal, Shield, Power, Loader2, AlertCircle, LogOut, User, Target, Flag, CheckCircle2, XCircle, BookOpen, AlertTriangle } from 'lucide-react';
+import { Terminal, Shield, Loader2, AlertCircle, LogOut, User, Target, Flag, CheckCircle2, XCircle, BookOpen, AlertTriangle } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import { buildApiUrl } from '@/utils/api';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
-
-interface Challenge {
-  challenge_id: string;
-  title: string;
-  description?: string;
-  difficulty?: number; // DB column is now integer (1-5)
-  category?: string;
-  points?: number;
-  writeup?: string; // Educational writeup in Markdown format
-  tags?: string[]; // Tags array (e.g., ["Web", "SQL", "Beginner"])
-  metadata?: {
-    tags?: string[]; // Alternative location for tags
-    category?: string; // Category key (e.g., "WEB_SQLI")
-  };
-}
-
-interface MissionData {
-  status: string;
-  container_id: string;
-  port: number;
-  url: string;
-  message: string;
-  challenge_name?: string;
-  challenge_id?: string; // Flag提出時に必要
-}
-
-interface SubmitResult {
-  correct: boolean;
-  message: string;
-}
+import type { Challenge, MissionData, SubmitResult } from '@/types';
+import ChallengeCard from '@/components/ChallengeCard';
 
 export default function Home() {
   const router = useRouter();
@@ -701,79 +672,14 @@ export default function Home() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {challenges.map((challenge) => (
-                  <Card key={challenge.challenge_id} className="border-zinc-800 bg-zinc-900 hover:border-zinc-700 transition-colors">
-                    <CardHeader>
-                      <div className="flex items-start justify-between">
-                        <CardTitle className="text-lg text-zinc-100">
-                          {challenge.title}
-                        </CardTitle>
-                        {challenge.difficulty && (
-                          <span className={`text-xs font-bold uppercase px-2 py-1 rounded ${getDifficultyColor(challenge.difficulty)} bg-zinc-800`}>
-                            {challenge.difficulty}
-                          </span>
-                        )}
-                      </div>
-                      {challenge.category && (
-                        <span className="text-xs text-zinc-500 uppercase tracking-wider">
-                          {challenge.category}
-                        </span>
-                      )}
-                    </CardHeader>
-                    <CardContent>
-                      <CardDescription className="text-zinc-400 text-sm">
-                        {challenge.description || 'No description available.'}
-                      </CardDescription>
-                      {/* Tags Display */}
-                      {(challenge.tags || challenge.metadata?.tags) && (
-                        <div className="mt-3 flex flex-wrap gap-1.5">
-                          {(challenge.tags || challenge.metadata?.tags || []).map((tag, idx) => (
-                            <span
-                              key={idx}
-                              className="text-xs px-2 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-400 font-mono"
-                            >
-                              #{tag}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </CardContent>
-                    <CardFooter className="flex flex-col gap-2">
-                      <Button
-                        onClick={() => {
-                          console.log('Button clicked, challenge:', challenge);
-                          console.log('challenge.challenge_id:', challenge.challenge_id);
-                          console.log('challenge object keys:', Object.keys(challenge));
-                          
-                          // challenge_idの確認（複数の方法で試行）
-                          const idToUse = challenge.challenge_id || challenge.id;
-                          
-                          if (!idToUse) {
-                            console.error('challenge_id is missing!', challenge);
-                            setErrorSafe('Challenge ID is missing. Please refresh the page.');
-                            return;
-                          }
-                          
-                          console.log('Calling startMission with ID:', idToUse);
-                          startMission(idToUse);
-                        }}
-                        disabled={isLoading}
-                        className="w-full"
-                        size="lg"
-                      >
-                        {isLoading && loadingChallengeId === challenge.challenge_id ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            DEPLOYING...
-                          </>
-                        ) : (
-                          <>
-                            <Power className="w-4 h-4 mr-2" />
-                            INITIALIZE
-                          </>
-                        )}
-                      </Button>
-                    </CardFooter>
-                  </Card>
+                  <ChallengeCard
+                    key={challenge.challenge_id}
+                    challenge={challenge}
+                    onInitialize={startMission}
+                    isLoading={isLoading}
+                    loadingChallengeId={loadingChallengeId}
+                    getDifficultyColor={getDifficultyColor}
+                  />
                 ))}
               </div>
             )}

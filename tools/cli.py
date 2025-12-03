@@ -12,6 +12,7 @@ Usage:
 """
 
 import sys
+import os
 import argparse
 from pathlib import Path
 
@@ -21,6 +22,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from ci.validator import validate_mission_file, ValidationError
 from marketing.generator import generate_from_file, ContentGenerator
 from generation.drafter import MissionDrafter, CHALLENGE_CATEGORIES, VISUAL_THEMES
+from generation.gemini_drafter import GeminiMissionDrafter
+from generation.evaluator import MissionEvaluator
 from deploy.uploader import MissionUploader
 from builder.simple_builder import ImageBuilder
 from solver.container_tester import ContainerTester
@@ -214,12 +217,12 @@ def cmd_build(args):
 
 
 def cmd_reset(args):
-    """Reset development environment: clear database and remove Docker containers/images."""
+    """Reset development environment: clear database, remove Docker containers/images, and delete JSON files."""
     supabase_url = args.supabase_url
     supabase_service_key = args.supabase_service_key
     
     # Confirmation prompt
-    print("⚠️  WARNING: This will delete ALL data from the database and remove ALL sol/mission- containers and images.")
+    print("⚠️  WARNING: This will delete ALL data from the database, remove ALL sol/mission- containers and images, and delete ALL JSON files in challenges/drafts/.")
     print("")
     response = input("Are you sure you want to proceed? [y/N]: ").strip().lower()
     
@@ -233,7 +236,7 @@ def cmd_reset(args):
     
     try:
         # Step 1: Reset Database
-        print("[1/2] Resetting database...")
+        print("[1/3] Resetting database...")
         uploader = MissionUploader(
             supabase_url=supabase_url,
             supabase_service_key=supabase_service_key
@@ -248,8 +251,25 @@ def cmd_reset(args):
             print(f"         Total: {db_result['deleted_count']} record(s) removed.")
         print("")
         
-        # Step 2: Reset Docker
-        print("[2/2] Resetting Docker environment...")
+        # Step 2: Delete JSON files in challenges/drafts/
+        print("[2/3] Deleting JSON files in challenges/drafts/...")
+        drafts_dir = Path("challenges/drafts")
+        if drafts_dir.exists():
+            json_files = list(drafts_dir.glob("*.json"))
+            deleted_count = 0
+            for json_file in json_files:
+                try:
+                    json_file.unlink()
+                    deleted_count += 1
+                except Exception as e:
+                    print(f"         Warning: Failed to delete {json_file.name}: {e}")
+            print(f"[DELETE] Removed {deleted_count} JSON file(s) from challenges/drafts/.")
+        else:
+            print("[DELETE] challenges/drafts/ directory does not exist. Skipping.")
+        print("")
+        
+        # Step 3: Reset Docker
+        print("[3/3] Resetting Docker environment...")
         docker_result = uploader.reset_docker()
         print(f"[DELETE] Removed {docker_result['removed_containers']} container(s).")
         print(f"[DELETE] Removed {docker_result['removed_images']} image(s).")
@@ -292,17 +312,49 @@ def cmd_auto_add(args):
     tester = None
     
     try:
-        # Step 1: Draft Generation (without writeup initially)
-        print("[1/6] Generating draft mission JSON (without writeup)...")
-        drafter = MissionDrafter(output_dir=output_dir, api_key=api_key)
+        # Step 1: Draft Generation (using Gemini API)
+        print("[1/8] Generating draft mission JSON with Gemini API...")
+        
+        # Read source text if provided
+        source_text = None
+        if args.source:
+            source_path = Path(args.source)
+            if not source_path.exists():
+                print(f"[ERROR] Source file not found: {args.source}", file=sys.stderr)
+                return 1
+            try:
+                with open(source_path, 'r', encoding='utf-8') as f:
+                    source_text = f.read()
+                print(f"[INFO] Loaded source text from: {args.source} ({len(source_text)} characters)")
+            except Exception as e:
+                print(f"[ERROR] Failed to read source file: {e}", file=sys.stderr)
+                return 1
+        
+        # Use Gemini drafter (new architecture)
+        use_gemini = os.getenv("USE_GEMINI", "true").lower() == "true"
+        if use_gemini:
+            drafter = GeminiMissionDrafter(output_dir=output_dir, api_key=os.getenv("GEMINI_API_KEY"))
+        else:
+            # Fallback to OpenAI (legacy)
+            drafter = MissionDrafter(output_dir=output_dir, api_key=api_key)
+        
         # Use random category and theme for auto-add (for diversity)
-        success, draft_file_path, mission = drafter.draft(
-            difficulty=difficulty,
-            max_retries=3,
-            verbose=verbose,
-            category=None,  # Random selection for diversity
-            theme=None,  # Random selection for diversity
-        )
+        if use_gemini:
+            success, draft_file_path, mission = drafter.draft(
+                difficulty=difficulty,
+                max_retries=3,
+                verbose=verbose,
+                mission_type=None,  # Random selection for diversity
+                source_text=source_text,  # RAG source text
+            )
+        else:
+            success, draft_file_path, mission = drafter.draft(
+                difficulty=difficulty,
+                max_retries=3,
+                verbose=verbose,
+                category=None,  # Random selection for diversity
+                theme=None,  # Random selection for diversity
+            )
         
         if not success:
             print("[ERROR] Draft generation failed", file=sys.stderr)
@@ -770,6 +822,12 @@ Examples:
         '--verbose',
         action='store_true',
         help='Show detailed error messages for debugging'
+    )
+    parser_auto_add.add_argument(
+        '--source', '-s',
+        type=str,
+        default=None,
+        help='Path to source text file (RAG mode: generate challenge based on provided text)'
     )
     
     # generate command

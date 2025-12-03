@@ -94,51 +94,88 @@ class ContainerTester:
         try:
             if self.use_docker_lib:
                 # Start container using docker library
-                container = self.client.containers.run(
-                    image=image_name,
-                    name=f"sol_test_{int(time.time())}",
-                    ports={'8000/tcp': ('0.0.0.0', 0)},  # Auto-assign port
-                    detach=True,
-                    remove=False,
-                    environment={
-                        "CTF_FLAG": flag
-                    },
-                    mem_limit="512m",
-                    network_disabled=False,
-                )
-                
-                # Wait for container to be ready
-                container.reload()
-                container_id = container.id
-                
-                # Get assigned port
-                if container.ports and '8000/tcp' in container.ports:
-                    port_info = container.ports['8000/tcp']
-                    if port_info and len(port_info) > 0:
-                        port = int(port_info[0]['HostPort'])
-                        container_url = f"http://localhost:{port}"
-                
-                # Wait for container to be ready (check if it responds)
-                if HAS_REQUESTS:
-                    max_wait = timeout
-                    wait_interval = 2
-                    waited = 0
+                try:
+                    container = self.client.containers.run(
+                        image=image_name,
+                        name=f"sol_test_{int(time.time())}",
+                        ports={'8000/tcp': ('0.0.0.0', 0)},  # Auto-assign port
+                        detach=True,
+                        remove=False,
+                        environment={
+                            "CTF_FLAG": flag
+                        },
+                        mem_limit="512m",
+                        network_disabled=False,
+                    )
                     
-                    while waited < max_wait:
-                        try:
-                            response = requests.get(f"{container_url}/", timeout=2)
-                            if response.status_code in [200, 404]:  # 404 is OK, means server is running
-                                break
-                        except requests.RequestException:
-                            pass
+                    # Wait for container to be ready
+                    container.reload()
+                    container_id = container.id
+                    
+                    # Get assigned port
+                    if container.ports and '8000/tcp' in container.ports:
+                        port_info = container.ports['8000/tcp']
+                        if port_info and len(port_info) > 0:
+                            port = int(port_info[0]['HostPort'])
+                            container_url = f"http://localhost:{port}"
+                    
+                    # Wait for container to be ready (check if it responds)
+                    if HAS_REQUESTS:
+                        max_wait = timeout
+                        wait_interval = 2
+                        waited = 0
                         
-                        time.sleep(wait_interval)
-                        waited += wait_interval
-                else:
-                    # Wait without checking if requests is not available
-                    time.sleep(5)
-                
-                return container_id, port, container_url
+                        while waited < max_wait:
+                            try:
+                                response = requests.get(f"{container_url}/", timeout=2)
+                                if response.status_code in [200, 404]:  # 404 is OK, means server is running
+                                    break
+                            except requests.RequestException:
+                                pass
+                            
+                            time.sleep(wait_interval)
+                            waited += wait_interval
+                    else:
+                        # Wait without checking if requests is not available
+                        time.sleep(5)
+                    
+                    return container_id, port, container_url
+                except docker.errors.APIError as e:
+                    error_msg = str(e)
+                    if "port is already allocated" in error_msg or "Bind" in error_msg:
+                        print(f"[WARNING] Port conflict detected. Trying to find available port...", file=sys.stderr)
+                        # Try with a different approach - let Docker auto-assign
+                        try:
+                            container = self.client.containers.run(
+                                image=image_name,
+                                name=f"sol_test_{int(time.time())}_{hash(image_name) % 10000}",
+                                ports={'8000/tcp': None},  # Let Docker auto-assign
+                                detach=True,
+                                remove=False,
+                                environment={
+                                    "CTF_FLAG": flag
+                                },
+                                mem_limit="512m",
+                                network_disabled=False,
+                            )
+                            container.reload()
+                            container_id = container.id
+                            if container.ports and '8000/tcp' in container.ports:
+                                port_info = container.ports['8000/tcp']
+                                if port_info and len(port_info) > 0:
+                                    port = int(port_info[0]['HostPort'])
+                                    container_url = f"http://localhost:{port}"
+                            time.sleep(5)
+                            return container_id, port, container_url
+                        except Exception as e2:
+                            print(f"[ERROR] Failed to start container after retry: {e2}", file=sys.stderr)
+                            return None, None, None
+                    else:
+                        print(f"[ERROR] Failed to start container: {error_msg}", file=sys.stderr)
+                        return None, None, None
+                except Exception as e:
+                    print(f"[ERROR] Unexpected error starting container: {e}", file=sys.stderr)
+                    return None, None, None
             else:
                 # Start container using subprocess
                 import random

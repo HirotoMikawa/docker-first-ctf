@@ -250,6 +250,45 @@ class MissionDrafter:
    - **requirements.txt**: 必要なPythonパッケージ（Flask等）
    - **flag.txt**: `flag_answer` と同じ値のフラグファイル（オプション）
 
+**[CRITICAL: FILE PERSISTENCE RULE - HIGHEST PRIORITY]**
+
+⚠️ THIS IS THE MOST CRITICAL RULE. YOU MUST FOLLOW IT EXACTLY. ⚠️
+
+**If your challenge scenario involves reading a file (e.g., "/flag.txt", "/app/config.php", "/home/ctfuser/flag.txt", "database.db"), you MUST ensure this file is created in the Dockerfile.**
+
+**Requirement:**
+
+1. **File Creation in Dockerfile**: In the `Dockerfile` content you generate, use `RUN` commands to create ALL files that are referenced in `app.py`.
+   - **BAD**: Assuming the file exists without creating it.
+   - **GOOD**: `RUN echo "SolCTF{...}" > /flag.txt && chmod 644 /flag.txt`
+   - **GOOD**: `RUN sqlite3 database.db "CREATE TABLE users (...)"` (if database.db is referenced)
+
+2. **Path Consistency**: The path in `app.py` (e.g., `open("/flag.txt")`, `cat /flag.txt`) MUST match the path in `Dockerfile` (e.g., `RUN echo ... > /flag.txt`).
+   - If `app.py` reads `/flag.txt`, then Dockerfile MUST create `/flag.txt`.
+   - If `app.py` reads `/home/ctfuser/flag.txt`, then Dockerfile MUST create `/home/ctfuser/flag.txt`.
+   - If `app.py` reads `database.db`, then Dockerfile MUST create `database.db` with proper initialization.
+
+3. **Permissions**: Ensure the `ctfuser` can read/write the files as needed.
+   - Use `chmod 644` for read-only files.
+   - Use `chown ctfuser:ctfuser` if needed (before `USER ctfuser`).
+
+4. **Execution Order**: File creation MUST happen BEFORE `USER ctfuser` (as root).
+   - Correct order: 1) FROM, 2) RUN useradd/adduser, 3) **RUN echo ... > file.txt (create files)**, 4) COPY files, 5) RUN pip install, 6) USER ctfuser, 7) WORKDIR, 8) EXPOSE, 9) CMD
+
+5. **Database Files**: If `app.py` uses SQLite (`database.db`), you MUST initialize it in Dockerfile:
+   ```dockerfile
+   RUN sqlite3 /home/ctfuser/database.db "CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, password TEXT); INSERT INTO users VALUES (1, 'admin', 'password123');"
+   RUN chown ctfuser:ctfuser /home/ctfuser/database.db
+   ```
+
+**VERIFICATION CHECKLIST:**
+Before submitting your Dockerfile, verify:
+- [ ] Every file referenced in `app.py` (via `open()`, `cat`, `sqlite3`, etc.) is created in Dockerfile
+- [ ] File paths in `app.py` match file paths in Dockerfile exactly
+- [ ] File creation happens BEFORE `USER ctfuser`
+- [ ] File permissions allow `ctfuser` to read/write as needed
+- [ ] Database files (if any) are initialized with proper schema and data
+
 **セキュリティ基準（PROJECT_MASTER.md準拠）:**
 - ユーザー: ctfuser (UID >= 1000) で実行。Root禁止。
 - ポート: 8000/tcp のみ公開。

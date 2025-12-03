@@ -1,0 +1,504 @@
+﻿資源制約下における最適化された自動問題生成（AQG）システム：GeminiとCursorを活用した学生主導型開発のための包括的技術レポート
+
+
+
+
+1. 序論：教育工学における生成AIの民主化と「Frugal AI」の台頭
+
+
+2024年から2025年にかけての人工知能（AI）、特に大規模言語モデル（LLM）の急速な進化は、教育工学（EdTech）の風景を一変させた。かつて自動問題生成（Automatic Question Generation: AQG）は、計算言語学の専門家や潤沢な資金を持つ企業のみがアクセス可能な領域であったが、高性能なオープンソースモデル（Gemma 2, Qwen 2.5など）の登場と、商用API（Gemini 1.5 Flashなど）の無料枠の大幅な拡大により、個人の学生開発者であっても実用レベルのシステムを構築することが可能となった1。
+本レポートは、予算制約の厳しい学生開発者が、コーディング支援AI「Cursor」とプロジェクト管理AI「Gemini（Canvas）」を指揮し、費用対効果を最大化したAQGシステムを構築するための戦略的技術仕様書である。ここでは、単に「動く」だけでなく、教育的に妥当で、かつ運用コストが限りなくゼロに近い「Frugal AI（質素なAI）」アーキテクチャを提案する。
+
+
+1.1 プロジェクトの背景と課題定義
+
+
+教育における「問い」の重要性は論をまたない。良質な問いは学習者の理解を深め、批判的思考を促す。しかし、伝統的な教育モデルにおいて、良質な多肢選択問題（MCQ）や記述式問題を作成するコストは極めて高い2。人手による作成は時間がかかり、作成者のバイアスがかかりやすい。一方、既存の自動生成システムは、文法的には正しいが内容が浅い「事実確認型」の問題に偏りがちであり、また日本語特有の文脈処理において課題を抱えていた1。
+本プロジェクトにおける「学生一人による開発」という制約は、以下の技術的課題を提起する。
+1. 経済的制約（Zero Budget）: 高価なGPUインスタンスや、トークン単価の高いGPT-4クラスの商用APIは使用できない。
+2. 計算資源の制約（Low Compute）: 開発および運用環境は、一般的なノートPC（CPU推論中心）または無料のクラウド環境（Google Colab Free Tier等）に限定される。
+3. 品質管理の自動化（Automated QA）: 人手によるレビューリソースがないため、AI自身が生成物の品質を担保する自律的なループが必要となる。
+4. 日本語処理の複雑性: 膠着語である日本語は、英語のようにスペースで分かち書きされていないため、RAG（検索拡張生成）におけるチャンキング（テキスト分割）で文脈が断絶しやすい4。
+これらの課題に対し、本レポートではGemini APIの無料枠と軽量ローカルLLMを組み合わせたハイブリッドアーキテクチャを提示し、CursorとGemini Canvasへの具体的な指示として落とし込む。
+________________
+
+
+2. 理論的枠組み：次世代AQGアルゴリズムの構成要素
+
+
+最適なアルゴリズムを設計するためには、AQGの進化と教育学的理論を理解する必要がある。ここでは、最新の研究動向に基づき、本プロジェクトで採用すべき手法を選定する。
+
+
+2.1 ニューラルAQGの進化と現在地
+
+
+AQGの歴史は、構文解析に基づくルールベースの手法から始まり、Seq2Seqモデル（RNN/LSTM）を経て、Transformerベースの事前学習済みモデル（BERT, T5, GPT）へと進化した1。2025年現在、主流となっているのはLLMを用いたプロンプトエンジニアリングと**RAG（Retrieval-Augmented Generation）**の融合である。
+
+
+世代
+	技術特徴
+	日本語対応の課題
+	本プロジェクトでの採用可否
+	第1世代
+	ルールベース、テンプレート
+	柔軟性がなく、不自然な日本語になりがち
+	却下
+	第2世代
+	Seq2Seq, LSTM
+	長文脈の理解が弱く、学習データが必要
+	却下
+	第3世代
+	BERT, T5 (Fine-tuned)
+	専用の学習データセットが必要。モデルサイズは手頃だが推論環境構築の手間がある8
+	予備（ローカル実行用）
+	第4世代
+	LLM (GPT-4, Gemini, Qwen)
+	ゼロショットで多様な問題生成が可能。文脈理解力が高い
+	採用（主軸）
+	本プロジェクトでは、第4世代のLLMを核としつつ、API制限やオフライン環境を考慮して第3世代的な軽量モデル（Gemma 2 2B JPN等）をバックアップとして組み込む「ハイブリッド戦略」を採用する。
+
+
+2.2 教育学的妥当性の担保：Bloomのタキソノミー
+
+
+単にテキストから単語を抜き出して穴埋めにするだけの問題は、学習効果が低い。教育学的には、**Bloomのタキソノミー（学習目標の分類）**に基づき、異なる認知レベルの問題を生成することが求められる9。
+* 記憶（Remember）: 用語や事実を問う（例：「1600年に何が起きたか？」）。従来のAQGが得意とする領域。
+* 理解（Understand）: 概念を説明させる（例：「関ヶ原の戦いが徳川幕府成立に与えた影響は？」）。
+* 応用（Apply）: 知識を新しい状況に適用する。
+* 分析（Analyze）: 情報の構成要素を分解し、関係性を問う。
+LLMは、プロンプトで「Bloomのタキソノミーにおける『分析』レベルの問題を作成せよ」と指示することで、この制御が可能である。本アルゴリズムでは、単一のレベルだけでなく、複数のレベルを組み合わせた問題セットを生成するよう設計する。
+
+
+2.3 Answer-Aware Question Generation (AAQG)
+
+
+AQGには、答えを先に決めてから質問を作る「Answer-Aware」と、答えを決めずに質問を作る「Answer-Agnostic」がある2。教育用MCQにおいては、Answer-Awareの方が圧倒的に品質が高い。なぜなら、まず「学習者に理解させたい重要語句（正解）」を特定し、そこから逆算して質問を作ることで、教育的意図が明確になるからである。
+本プロジェクトのアルゴリズムは、以下のパイプラインを採用する。
+1. Keyphrase Extraction: テキストから重要語句を抽出。
+2. Question Generation: 重要語句を答えとする質問を生成。
+3. Distractor Generation: 文脈的に関連するが、明確に誤りである選択肢を生成。
+________________
+
+
+3. システムアーキテクチャ設計：HyRAG-QG
+
+
+提案するシステム**「HyRAG-QG (Hybrid Retrieval-Augmented Generation for Question Generation)」**は、クラウドの計算力（Gemini API）とローカルの機密性・安定性（Local Embeddings/LLM）を融合させた構成である。
+
+
+3.1 全体構成図とデータフロー
+
+
+システムは大きく分けて「Ingestion（取り込み）」「Generation（生成）」「Evaluation（評価）」の3つのモジュールで構成される。
+1. Ingestion Layer (Cursor実装担当):
+   * PDF/Webページからのテキスト抽出。
+   * BudouXとLangChainを用いた日本語特化型チャンキング。
+   * ChromaDB（ローカルVector Store）への埋め込み保存。
+2. Generation Layer (Gemini API / Local LLM):
+   * Gemini 1.5 Flashを用いた高速推論（メイン）。
+   * Gemma 2 2B JPNを用いたフォールバック（サブ）。
+   * Pydanticによる構造化データ出力（JSON強制）。
+3. Evaluation Layer (LLM-as-a-Judge):
+   * 生成された問題の品質を自己評価。
+   * 基準を満たさない問題の再生成または破棄。
+
+
+3.2 コストとパフォーマンスの最適化戦略
+
+
+学生の「費用をかけたくない」という要件に対する解は以下の通りである。
+* 推論エンジン: Gemini 1.5 Flashの無料枠（Free Tier）を徹底活用する。Google AI Studio経由でAPIキーを取得すれば、1日あたり1,500リクエストまで無料で使用可能である3。これは個人開発の規模であれば十分すぎる量である。GPT-4o miniなどの安価なモデルもあるが、完全無料枠の太さでGeminiが勝る。
+* 埋め込みモデル: OpenAIのtext-embedding-3-small（有料）は使用しない。代わりに、Hugging Faceで公開されている**intfloat/multilingual-e5-small**などをローカル（CPU）で動作させる。これにより、ベクトル化のコストは完全にゼロになる11。
+* 開発ツール: Cursor（AIエディタ）の無料枠またはPro試用を活用し、効率的にコードを書く。Gemini Canvasはブラウザ上で無料で使用可能であり、設計図の共有やコードレビューに利用する。
+
+
+3.3 技術スタック選定
+
+
+
+
+コンポーネント
+	選定技術
+	選定理由
+	言語 (Language)
+	Python 3.10+
+	AI/MLライブラリの豊富さ、日本語処理ライブラリの充実12。
+	LLM (Cloud)
+	Gemini 1.5 Flash
+	無料枠（15 RPM, 1500 RPD）、1Mトークンのコンテキストウィンドウ、高い日本語能力3。
+	LLM (Local)
+	Gemma 2 2B JPN
+	Googleが開発し日本語チューニングされた軽量モデル。CPUでも動作可能14。
+	Orchestration
+	LangChain
+	LLMの切り替え、プロンプト管理、RAGフローの抽象化に必須16。
+	Vector DB
+	ChromaDB
+	サーバー構築不要でPythonプロセス内で完結する軽量データベース18。
+	Validation
+	Pydantic
+	LLMの出力を厳密な型定義（JSON Schema）に適合させるため19。
+	NLP (Japanese)
+	BudouX
+	軽量かつ高精度な日本語分かち書き。MeCabのような辞書設定が不要21。
+	________________
+
+
+4. コンポーネント詳細設計：実装へのブリッジ
+
+
+ここからは、Gemini Canvas（PM）とCursor（エンジニア）が具体的に作業を進めるための詳細設計を行う。
+
+
+4.1 データ取り込みと日本語処理の最適化 (Ingestion)
+
+
+日本語テキストのAQGにおいて最大の落とし穴は、不適切なテキスト分割（Chunking）による文脈の喪失である。英語はスペースで区切られているため処理が容易だが、日本語はそうではない。
+
+
+4.1.1 意味論的チャンキング (Semantic Chunking)
+
+
+単純に「500文字で切る」という処理を行うと、重要な文の途中で切れてしまい、意味不明な問題が生成される原因となる。これを防ぐため、以下の2段階プロセスを採用する。
+1. BudouXによる文節解析:
+GoogleのBudouXライブラリを使用し、自然な改行位置（文節の区切り）を検出する。これは機械学習ベースであり、MeCabのような辞書メンテナンスが不要で、かつHTML/Markdown構造の維持に強い21。
+2. RecursiveCharacterTextSplitterのカスタマイズ:
+LangChainの標準スプリッターを使用するが、セパレータを日本語に最適化する。
+Cursorへの実装指示（Pythonコードイメージ）:
+
+
+Python
+
+
+
+
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+import budoux
+
+# 日本語に最適化されたセパレータ順序
+separators = ["\n\n", "\n", "。", "、", " ", ""]
+
+text_splitter = RecursiveCharacterTextSplitter(
+   chunk_size=600,  # Geminiのコンテキストウィンドウを活かしやや大きめに
+   chunk_overlap=100, # 文脈保持のためのオーバーラップ
+   separators=separators,
+   is_separator_regex=False
+)
+
+この設定により、段落＞文＞読点＞単語の優先順位で分割が行われ、文の意味的なまとまりが保持される7。
+
+
+4.1.2 ベクトル埋め込み
+
+
+コストゼロを実現するため、SentenceTransformersライブラリとintfloat/multilingual-e5-smallモデルを使用する。このモデルは多言語対応でありながらパラメータ数が少なく、学生のPC（CPUのみ）でも十分に高速に動作する11。
+
+
+4.2 生成エンジン：プロンプトエンジニアリングと構造化出力
+
+
+AQGの核となるのは、LLMにいかに高品質な問題を生成させるかである。ここでは「プロンプトの連鎖」と「構造化出力」を組み合わせる。
+
+
+4.2.1 Chain-of-Thought (CoT) プロンプティング
+
+
+単に「問題を作れ」と命じるのではなく、モデルに思考過程を出力させることで品質を高める。
+プロンプト例（概念）:
+「あなたはこの分野の専門教師です。まず、入力テキストを分析し、学習者が理解すべき重要な概念を3つ特定してください。次に、それぞれの概念について、Bloomのタキソノミーの『理解』または『応用』レベルに相当する多肢選択問題を作成してください。問題を作成する際は、なぜその正解が正しいのか、なぜ他の選択肢が誤りなのかの推論過程を明確にしてください。」
+このプロセスを経ることで、単なるキーワードマッチングではない、深い理解を問う問題が生成される2。
+
+
+4.2.2 Pydanticによる出力の構造化 (Structured Output)
+
+
+生成されたテキストをプログラムで処理（アプリ画面への表示、DBへの保存）するためには、JSON形式である必要がある。しかし、LLMはしばしばJSONの構文エラー（カンマの忘れなど）を起こす。
+これを防ぐため、Gemini APIのresponse_schema機能とPythonのライブラリPydanticを使用する。Gemini APIはPydanticのモデル定義をそのままスキーマとして受け取り、強制的にその形式で出力する能力を持つ19。
+定義すべきデータモデル（Cursorへの指示）:
+
+
+Python
+
+
+
+
+from pydantic import BaseModel, Field
+from typing import List
+
+class Option(BaseModel):
+   text: str = Field(..., description="選択肢のテキスト")
+   is_correct: bool = Field(..., description="正解かどうか")
+   explanation: str = Field(..., description="この選択肢が正解/不正解である理由")
+
+class QuizItem(BaseModel):
+   question: str = Field(..., description="問題文。明確な日本語で記述。")
+   options: List[Option] = Field(..., min_items=4, max_items=4, description="4つの選択肢")
+   difficulty: str = Field(..., description="難易度（初級/中級/上級）")
+   topic: str = Field(..., description="関連するトピック")
+
+class QuizOutput(BaseModel):
+   quizzes: List[QuizItem]
+
+このスキーマをAPI呼び出し時に渡すことで、後処理の正規表現パースなどは一切不要となり、開発工数が大幅に削減される。
+
+
+4.3 品質保証：LLM-as-a-Judgeによる自動評価
+
+
+学生一人の開発では、生成された全ての問題を目視確認することは不可能である。そこで、AI自身に問題を評価させる「LLM-as-a-Judge」を導入する25。
+
+
+4.3.1 評価ルーブリック
+
+
+LLM（審査員）に対し、以下の基準で点数を付けさせる27。
+基準
+	重み
+	説明
+	正確性 (Correctness)
+	40%
+	元のテキストに基づき、正解が論理的に導けるか。ハルシネーションがないか。
+	明確性 (Clarity)
+	30%
+	問題文や選択肢に曖昧さがないか。日本語として自然か。
+	教育的価値 (Value)
+	30%
+	単なる丸暗記ではなく、思考を促す良問か。選択肢（Distractor）は機能しているか。
+	
+
+4.3.2 自己修正ループ (Self-Correction)
+
+
+評価スコアが基準（例：80点）を下回った場合、審査員LLMのフィードバック（例：「選択肢CとDが似すぎていて区別がつかない」）を生成LLMに戻し、再生成を行わせる。このループを最大1〜2回回すことで、品質を自律的に向上させる。コスト削減のため、この審査にもGemini 1.5 Flash（無料枠）を使用する。
+________________
+
+
+5. 運用戦略：API制限とローカルフォールバック
+
+
+
+
+5.1 Gemini API Free Tierの制限管理
+
+
+Gemini 1.5 Flashの無料枠には「1分間に15リクエスト（15 RPM）」という制限がある3。これを超えるとエラー（429 Too Many Requests）が返される。
+これに対するCursorへの実装指示は以下の通りである。
+   1. Rate Limiterの実装: Pythonのasyncioとtenacityライブラリを使用し、リクエスト間に適切なウェイトを入れる。
+   2. バッチ処理: 1回のリクエストで1問ではなく、5〜10問をまとめて生成させる。これにより、API呼び出し回数を減らしつつ、生成スループットを維持する。Geminiの長いコンテキストウィンドウ（1Mトークン）はこのバッチ処理に最適である。
+
+
+5.2 ローカルLLMへのフォールバック
+
+
+インターネット接続がない、またはAPI制限に達した場合のバックアップとして、ローカルLLM（Gemma 2 2B JPN）を使用する。
+Cursorへの指示: llama-cpp-pythonライブラリを使用し、GGUF形式（量子化された軽量モデル）をロードする機能を実装する。Gemini API呼び出しが失敗した場合の例外処理（try-exceptブロック）で、自動的にこのローカルモデルに切り替わるロジックを組む8。
+________________
+
+
+6. 実装ガイド：Gemini (Canvas) と Cursor への共有指示書
+
+
+本セクションは、実際の開発作業において、Gemini Canvas（プロジェクト管理）とCursor（コーディング）にコピー＆ペーストして使用するための具体的なプロンプトである。
+
+
+6.1 Gemini (Canvas) への指示プロンプト：PMとしての全体指揮
+
+
+
+
+Role Definition
+
+
+あなたは、学生開発者を支援する「自動問題生成システム開発プロジェクト」のシニア・プロジェクトマネージャーです。
+開発リソースは「学生一人」、予算は「ゼロ（無料ツールのみ使用）」です。
+以下のロードマップに従い、実装担当のAI（Cursor）への指示出し、コードレビュー、および進捗管理を行ってください。
+
+
+Project Goal
+
+
+日本語の学習教材（PDF/Text）から、教育的価値の高い4択問題を自動生成するPythonアプリケーションを構築する。
+
+
+Constraints & Strategy
+
+
+   * Cost: Gemini API Free Tier (1.5 Flash) を徹底活用。Embeddingはローカルで行う。
+   * Quality: Pydanticを用いた構造化出力で、JSONパースエラーを防ぐ。
+   * Japanese: BudouXを用いた分かち書きで、文脈断絶を防ぐ。
+   * Hardware: GPUなしのノートPCでも動作するよう、重い処理はAPIにオフロードするか、軽量モデル（Gemma 2 2B）を使用。
+
+
+Phase Roadmap
+
+
+
+
+Phase 1: Core Pipeline Setup (Day 1-2)
+
+
+   * 目標: テキストを入力し、Gemini API経由でJSON形式の問題が出力されるまでのパイプライン構築。
+   * 指示事項:
+   * google-generativeai SDKのセットアップ。
+   * Pydanticスキーマの定義。
+   * asyncioを用いたレート制限（15 RPM）回避ロジックの実装。
+
+
+Phase 2: Japanese Text Optimization (Day 3)
+
+
+   * 目標: 入力テキストの適切な分割。
+   * 指示事項:
+   * langchainとbudouxを組み合わせたCustom Splitterの実装。
+   * ローカルVector DB（ChromaDB）のセットアップ。
+
+
+Phase 3: Evaluation & UI (Day 4-5)
+
+
+   * 目標: 品質の自動チェックとユーザーインターフェース。
+   * 指示事項:
+   * LLM-as-a-Judgeによる採点ロジックの実装。
+   * Streamlitを用いた簡易Web UIの作成（オプション）。
+
+
+Critical Review Points (Quality Gate)
+
+
+Cursorがコードを生成した際、以下の点を厳しくチェックしてください。
+   1. API Keyのハードコード禁止: 必ず .env から読み込んでいるか。
+   2. エラーハンドリング: API制限（429エラー）時のリトライ処理が入っているか。
+   3. 日本語対応: プロンプトが日本語で記述され、出力エンコーディングが考慮されているか。
+
+
+6.2 Cursor への指示プロンプト：エンジニアとしての実装
+
+
+
+
+Role Definition
+
+
+あなたはPython、LangChain、Generative AIに精通したシニアソフトウェアエンジニアです。
+以下の仕様に基づき、堅牢でコスト効率の良い「自動問題生成システム」のコードを実装してください。
+
+
+Technology Stack
+
+
+   * Language: Python 3.10+
+   * LLM API: Google Gemini API (google-generativeai SDK)
+   * Local LLM: llama-cpp-python (for Gemma 2 2B JPN GGUF fallback)
+   * Orchestration: LangChain
+   * Data: Pydantic v2 (Validation), ChromaDB (Vector Store)
+   * NLP: BudouX, SentenceTransformers (intfloat/multilingual-e5-small)
+
+
+Implementation Modules
+
+
+
+
+1. Data Ingestion (src/ingest.py)
+
+
+   * RecursiveCharacterTextSplitterを使用し、日本語の句読点 ["\n\n", "\n", "。", "、", " "] をセパレータとして設定してください。
+   * budouxライブラリをインポートし、テキスト分割の補助として使用するロジックを含めてください。
+   * SentenceTransformerEmbeddingsを使用し、ChromaDBにドキュメントを保存する関数を作成してください。
+
+
+2. Generator Logic (src/generate.py)
+
+
+   * クラス QuizGenerator を作成してください。
+   * メソッド generate_quiz(context: str) -> QuizOutput を実装してください。
+   * Gemini 1.5 Flashを使用し、generation_config で response_mime_type="application/json" と response_schema を必ず指定してください。
+   * 重要: tenacityライブラリを使用し、APIレート制限（Resource Exhausted）に対するExponential Backoff（指数バックオフ）リトライを実装してください。
+
+
+3. Data Models (src/models.py)
+
+
+   * 以下のPydanticモデルを定義してください。
+   * Option: text (str), is_correct (bool), explanation (str)
+   * QuizQuestion: question_text, options (List[Option]), difficulty, tags
+   * QuizSet: questions (List[QuizQuestion])
+
+
+4. Main Application (main.py)
+
+
+   * コマンドライン引数でPDFファイルのパスを受け取り、処理を実行するCLIを作成してください。
+   * 必要であれば streamlit を用いた簡易UIのコードも提案してください。
+
+
+Code Style
+
+
+   * Type Hintingを徹底してください。
+   * Docstring (Google Style) を記述してください。
+   * 非同期処理 (async/await) を活用し、並列処理性能を高めてください。
+________________
+
+
+7. 結論と将来の展望
+
+
+本レポートで提示した「HyRAG-QG」アーキテクチャは、最新のLLM技術と「Frugal AI（質素なAI）」の哲学を融合させ、学生一人のリソースでも商用レベルに匹敵する教育ツールを構築可能にするものである。
+特に、Gemini 1.5 Flashの無料枠とPydanticによる構造化出力の組み合わせは、従来の「プロンプトでお願いして正規表現で頑張ってパースする」という不安定な開発手法を過去のものにした。また、BudouXとローカルEmbeddingの採用により、日本語特有の課題とコストの壁を同時に解決している。
+今後の展望としては、生成された問題に対する学生の回答データを蓄積し、強化学習（RLHF）やプロンプト最適化（DSPy）を用いて、個々の学習者の苦手分野に合わせて問題の難易度を動的に調整する「適応学習（Adaptive Learning）」機能への拡張が考えられる。本システムはそのための強固な基盤となるだろう。
+
+
+参考文献
+
+
+   * 1
+: Japanese Automatic Question Generation methods survey 2024 2025. arXiv.
+   * 2
+: Question generation in education: A systematic review. PMC.
+   * 3
+: Gemini API Pricing. Google AI for Developers.
+   * 10
+: Gemini API Rate Limits. Google AI for Developers.
+   * 25
+: Scaling Evaluation with LLM Judges. Medium.
+   * 19
+: Gemini API Structured Output. Google AI for Developers.
+   * 14
+: Gemma 2 2B JPN Instruct. Hugging Face.
+   * 7
+: LangChain RecursiveTextSplitter Documentation.
+   * 21
+: BudouX: A standalone, small, language-neutral line break organizer. GitHub.
+   * 20
+: How I structured Gemini output using Pydantic. Medium.
+引用文献
+      1. A Survey of Automatic Evaluation Methods on Text, Visual and Speech Generations - arXiv, 11月 28, 2025にアクセス、 https://arxiv.org/html/2506.10019v1
+      2. A literature review of research on question generation in education - PMC - NIH, 11月 28, 2025にアクセス、 https://pmc.ncbi.nlm.nih.gov/articles/PMC12453861/
+      3. Gemini Developer API pricing | Gemini API | Google AI for Developers, 11月 28, 2025にアクセス、 https://ai.google.dev/gemini-api/docs/pricing
+      4. Introduction to the Open Leaderboard for Japanese LLMs - Hugging Face, 11月 28, 2025にアクセス、 https://huggingface.co/blog/leaderboard-japanese
+      5. An Automatic Question Generation System for High School English Education, 11月 28, 2025にアクセス、 https://anlp.jp/proceedings/annual_meeting/2024/pdf_dir/P4-28.pdf
+      6. (PDF) Automatic Question Generation for Educational Applications – The State of Art, 11月 28, 2025にアクセス、 https://www.researchgate.net/publication/288371218_Automatic_Question_Generation_for_Educational_Applications_-_The_State_of_Art
+      7. Splitting recursively - Docs by LangChain, 11月 28, 2025にアクセス、 https://docs.langchain.com/oss/python/integrations/splitters/recursive_text_splitter
+      8. mradermacher/t5-base-japanese-question-generation-GGUF - Hugging Face, 11月 28, 2025にアクセス、 https://huggingface.co/mradermacher/t5-base-japanese-question-generation-GGUF
+      9. \name: Scalable Concept-Driven Question Generation to Enhance Human Learning - arXiv, 11月 28, 2025にアクセス、 https://arxiv.org/html/2502.12477v1
+      10. Rate limits | Gemini API - Google AI for Developers, 11月 28, 2025にアクセス、 https://ai.google.dev/gemini-api/docs/rate-limits
+      11. MTEB Leaderboard - a Hugging Face Space by mteb, 11月 28, 2025にアクセス、 https://huggingface.co/spaces/mteb/leaderboard
+      12. 9 Best Natural Language Processing With Python Libraries In 2025 - Techvify, 11月 28, 2025にアクセス、 https://techvify.com/natural-language-processing-with-python/
+      13. taishi-i/awesome-japanese-nlp-resources: A curated list of resources dedicated to Python libraries, LLMs, dictionaries, and corpora of NLP for Japanese - GitHub, 11月 28, 2025にアクセス、 https://github.com/taishi-i/awesome-japanese-nlp-resources
+      14. google/gemma-2-2b-jpn-it - Hugging Face, 11月 28, 2025にアクセス、 https://huggingface.co/google/gemma-2-2b-jpn-it
+      15. Google Releases Gemma-2-JPN: A 2B AI Model Fine-Tuned on Japanese Text - Reddit, 11月 28, 2025にアクセス、 https://www.reddit.com/r/machinelearningnews/comments/1fx9pf2/google_releases_gemma2jpn_a_2b_ai_model_finetuned/
+      16. Question Answering in LangChain - Packt, 11月 28, 2025にアクセス、 https://www.packtpub.com/en-us/learning/how-to-tutorials/question-answering-in-langchain
+      17. A Practical Guide to Building Local RAG Applications with LangChain - MachineLearningMastery.com, 11月 28, 2025にアクセス、 https://machinelearningmastery.com/a-practical-guide-to-building-local-rag-applications-with-langchain/
+      18. Step by Step guide to implement Question and Answer bot using #LLM, #langchain and #chromadb #genai - YouTube, 11月 28, 2025にアクセス、 https://www.youtube.com/watch?v=_uDtENwUSJA
+      19. Structured Outputs | Gemini API - Google AI for Developers, 11月 28, 2025にアクセス、 https://ai.google.dev/gemini-api/docs/structured-output
+      20. How I Structured Gemini Output Using Pydantic | by Sweety Tripathi - Medium, 11月 28, 2025にアクセス、 https://medium.com/@sweety.tripathi13/how-i-structured-gemini-output-using-pydantic-d14ae6abb95a
+      21. google/budoux - GitHub, 11月 28, 2025にアクセス、 https://github.com/google/budoux
+      22. Budou is an automatic organizer tool for beautiful line breaking in CJK (Chinese, Japanese, and Korean). - GitHub, 11月 28, 2025にアクセス、 https://github.com/google/budou
+      23. Implement RAG chunking strategies with LangChain and watsonx.ai - IBM, 11月 28, 2025にアクセス、 https://www.ibm.com/think/tutorials/chunking-strategies-for-rag-with-langchain-watsonx-ai
+      24. Structured output - Gemini by Example, 11月 28, 2025にアクセス、 https://geminibyexample.com/020-structured-output/
+      25. Scaling Evaluation with LLM Judges: Our Approach and Findings, 11月 28, 2025にアクセス、 https://medium.com/@nomannayeem/scaling-evaluation-with-llm-judges-our-approach-and-findings-0a046e8344c4
+      26. LLM-as-a-Judge Simply Explained: The Complete Guide to Run LLM Evals at Scale, 11月 28, 2025にアクセス、 https://www.confident-ai.com/blog/why-llm-as-a-judge-is-the-best-llm-evaluation-method
+      27. Evaluate AI Model Quality With Prompt and Response Grading - Applause, 11月 28, 2025にアクセス、 https://www.applause.com/blog/evaluate-ai-model-quality-with-prompt-and-response-grading/
+      28. Testing a New Rubric for Evaluating Explanations on the CUBE dataset - arXiv, 11月 28, 2025にアクセス、 https://arxiv.org/html/2503.23899v1
+      29. Fine-tuning Gemma 2 JPN for Yomigana with LoRA - Kaggle, 11月 28, 2025にアクセス、 https://www.kaggle.com/code/iamleonie/fine-tuning-gemma-2-jpn-for-yomigana-with-lora

@@ -285,7 +285,30 @@ CMD ["python3", "-m", "http.server", "8000"]
             if files:
                 # Use files from JSON (AI-generated code)
                 print(f"[INFO] Using AI-generated files from JSON")
+                
+                # Get flag_answer for fallback
+                flag_answer = mission_json.get("flag_answer", "")
+                
                 for filename, content in files.items():
+                    # Special handling for flag.txt: use flag_answer as fallback
+                    if filename == "flag.txt" and (content is None or content == ""):
+                        if flag_answer:
+                            content = flag_answer
+                            print(f"[INFO] Using flag_answer as flag.txt content (fallback)")
+                        else:
+                            print(f"[WARNING] Skipping {filename}: content is None and flag_answer not found", file=sys.stderr)
+                            continue
+                    
+                    # Skip if content is None (optional fields, except flag.txt which is handled above)
+                    if content is None:
+                        print(f"[WARNING] Skipping {filename}: content is None", file=sys.stderr)
+                        continue
+                    
+                    # Ensure content is a string
+                    if not isinstance(content, str):
+                        print(f"[WARNING] Skipping {filename}: content is not a string (type: {type(content)})", file=sys.stderr)
+                        continue
+                    
                     file_path = os.path.join(temp_dir, filename)
                     # Create directory if needed
                     os.makedirs(os.path.dirname(file_path) if os.path.dirname(file_path) else temp_dir, exist_ok=True)
@@ -308,6 +331,114 @@ CMD ["python3", "-m", "http.server", "8000"]
                 with open(dockerfile_path, 'w', encoding='utf-8') as f:
                     f.write(dockerfile_content)
                 print(f"[INFO] Generated fallback Dockerfile")
+            else:
+                # Read AI-generated Dockerfile and apply safety corrections if needed
+                with open(dockerfile_path, 'r', encoding='utf-8') as f:
+                    dockerfile_content = f.read()
+                
+                # Safety corrections: Add missing CMD or EXPOSE if needed
+                corrections_applied = []
+                
+                # Fix COPY command syntax and WORKDIR/COPY order
+                import re
+                lines = dockerfile_content.split('\n')
+                
+                # First pass: Find WORKDIR and COPY positions
+                workdir_line_idx = None
+                workdir_path = None
+                copy_line_indices = []
+                
+                for i, line in enumerate(lines):
+                    if line.strip().startswith('WORKDIR'):
+                        workdir_line_idx = i
+                        workdir_path = line.strip().split(' ', 1)[1] if ' ' in line.strip() else None
+                    elif line.strip().startswith('COPY'):
+                        copy_line_indices.append(i)
+                
+                # Second pass: Fix issues
+                fixed_lines = []
+                for i, line in enumerate(lines):
+                    # Fix COPY command syntax (multiple files must end with /)
+                    if line.strip().startswith('COPY') and ' ' in line:
+                        parts = line.split()
+                        if len(parts) >= 4:  # COPY file1 file2 ... dest
+                            dest = parts[-1]
+                            # Fix: multiple files without trailing /
+                            if not dest.endswith('/') and dest != '.' and dest != './':
+                                if dest.startswith('/'):
+                                    # Absolute path - add trailing /
+                                    fixed_line = line.rsplit(' ', 1)[0] + ' ' + dest + '/'
+                                else:
+                                    # Relative path - change to ./
+                                    fixed_line = line.rsplit(' ', 1)[0] + ' ./'
+                                fixed_lines.append(fixed_line)
+                                corrections_applied.append("COPY syntax")
+                                continue
+                            elif dest == '.' and len(parts) > 3:
+                                # Multiple files with . as dest - change to ./
+                                fixed_line = line.rsplit(' .', 1)[0] + ' ./'
+                                fixed_lines.append(fixed_line)
+                                corrections_applied.append("COPY syntax")
+                                continue
+                            # Fix: COPY with relative path before WORKDIR
+                            elif (workdir_line_idx is None or i < workdir_line_idx) and (dest == '.' or dest == './'):
+                                # COPY is before WORKDIR - change to absolute path or add WORKDIR before
+                                # Use /app as default if no WORKDIR found
+                                target_dir = workdir_path if workdir_path else '/app'
+                                fixed_line = line.rsplit(' ', 1)[0] + ' ' + target_dir + '/'
+                                fixed_lines.append(fixed_line)
+                                corrections_applied.append("COPY path (before WORKDIR)")
+                                continue
+                    fixed_lines.append(line)
+                
+                # Third pass: Ensure WORKDIR is set before COPY with relative paths
+                # If COPY uses relative path and WORKDIR comes after, move WORKDIR before COPY
+                if workdir_line_idx is not None and copy_line_indices:
+                    first_copy_idx = min(copy_line_indices)
+                    if workdir_line_idx > first_copy_idx:
+                        # WORKDIR comes after first COPY - need to check if COPY uses relative path
+                        needs_fix = False
+                        for copy_idx in copy_line_indices:
+                            if copy_idx < workdir_line_idx:
+                                copy_line = fixed_lines[copy_idx]
+                                if ' ./' in copy_line or copy_line.strip().endswith(' .'):
+                                    needs_fix = True
+                                    break
+                        
+                        if needs_fix:
+                            # Move WORKDIR before first COPY
+                            workdir_line = fixed_lines[workdir_line_idx]
+                            fixed_lines.pop(workdir_line_idx)
+                            # Insert before first COPY
+                            insert_idx = min(copy_line_indices)
+                            fixed_lines.insert(insert_idx, workdir_line)
+                            corrections_applied.append("WORKDIR order")
+                
+                dockerfile_content = '\n'.join(fixed_lines)
+                
+                # Check for EXPOSE 8000
+                if "EXPOSE" not in dockerfile_content or "8000" not in dockerfile_content:
+                    # Add EXPOSE 8000 before CMD
+                    if "CMD" in dockerfile_content:
+                        dockerfile_content = dockerfile_content.replace("CMD", "EXPOSE 8000\n\nCMD")
+                    else:
+                        dockerfile_content += "\nEXPOSE 8000"
+                    corrections_applied.append("EXPOSE 8000")
+                
+                # Check for CMD
+                if "CMD" not in dockerfile_content:
+                    # Try to detect if it's a Flask app
+                    if "app.py" in files or "Flask" in str(files.get("requirements.txt", "")):
+                        dockerfile_content += "\nCMD [\"python\", \"app.py\"]"
+                    else:
+                        dockerfile_content += "\nCMD [\"python3\", \"-m\", \"http.server\", \"8000\"]"
+                    corrections_applied.append("CMD")
+                
+                # Write corrected Dockerfile
+                if corrections_applied:
+                    with open(dockerfile_path, 'w', encoding='utf-8') as f:
+                        f.write(dockerfile_content)
+                    print(f"[INFO] Applied safety corrections to Dockerfile: {', '.join(corrections_applied)}")
             
             # Build the image
             if self.use_docker_lib:
