@@ -196,6 +196,97 @@ Pydanticモデル（CTFMission）に完全に準拠したJSON形式で出力し�
 - render_template_stringは文字列フォーマット（.format()）を使用
 - SQLi問題はデータベース初期化（init_db()）を含める
 
+**[CRITICAL: 品質管理ルール - デバッグエンドポイントと脆弱性実装]**
+
+⚠️ 以下は絶対に守ること ⚠️
+
+**1. デバッグエンドポイントの禁止:**
+- ❌ `@app.route('/flag')` でフラグを直接返す
+- ❌ `@app.route('/debug')` でデバッグ情報を返す
+- ❌ `@app.route('/admin')` で管理画面を露出
+- **理由**: 脆弱性を突かずに簡単に解けてしまう
+
+**2. 脆弱性が実際に動作する実装:**
+
+**RCE/Command Injection問題の場合:**
+- ✅ `subprocess.run(cmd, shell=True, ...)` を使用
+- ❌ `subprocess.run(['echo', cmd], shell=False, ...)` は使用禁止
+- ✅ 出力をユーザーに返す（`capture_output=False` または結果を表示）
+- ❌ `capture_output=True` で出力を隠さない
+
+**SQLi問題の場合:**
+- ✅ 文字列連結: `f"SELECT * FROM users WHERE id='{user_input}'"`
+- ❌ Prepared statement: `cursor.execute("SELECT * FROM users WHERE id=?", (user_input,))` は使用禁止
+
+**3. コメントと実装の整合性:**
+- コメントで「脆弱性がある」と書いたら、実装も脆弱にする
+- セキュアな実装をしてはいけない（問題として成立しない）
+
+**[CRITICAL: 品質管理ルール - デバッグエンドポイント禁止]**
+
+⚠️ 以下のようなデバッグ用エンドポイントは **絶対に作成しないでください** ⚠️
+
+**禁止事項:**
+1. **フラグを直接返すエンドポイント**
+   - ❌ `@app.route('/flag')` - フラグを直接読み取って返す
+   - ❌ `@app.route('/debug')` - デバッグ情報を返す
+   - ❌ `@app.route('/admin')` - 管理画面でフラグを表示
+   - **理由**: 脆弱性を突かずに簡単に解けてしまう
+
+2. **セキュアな設定の使用禁止（脆弱性問題の場合）**
+   - ❌ `subprocess.run(..., shell=False)` - コマンドインジェクション問題では `shell=True` を使用すること
+   - ❌ `subprocess.run(..., capture_output=True)` - 出力をユーザーに見せる必要がある場合は使用しない
+   - ❌ `prepared statements` - SQLインジェクション問題では文字列連結を使用すること
+   - **理由**: 脆弱性が動作しなくなる
+
+3. **意図しない情報漏洩**
+   - ❌ エラーメッセージにフラグやパスを含める
+   - ❌ HTMLコメントにヒントを含める（探索要素として意図的な場合を除く）
+   - ❌ ソースコード内に直接フラグを埋め込む（ファイルから読み取るべき）
+
+**正しい実装例（RCE問題）:**
+```python
+# ✅ 正しい: shell=True で脆弱性が動作する
+@app.route('/', methods=['POST'])
+def execute():
+    cmd = request.form['cmd']
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    return result.stdout
+
+# ❌ 間違い: shell=False で脆弱性が防がれる
+@app.route('/', methods=['POST'])
+def execute():
+    cmd = request.form['cmd']
+    result = subprocess.run(['echo', cmd], shell=False, capture_output=True, text=True)
+    return result.stdout
+```
+
+**正しい実装例（SQLi問題）:**
+```python
+# ✅ 正しい: 文字列連結で脆弱性が動作する
+@app.route('/login', methods=['POST'])
+def login():
+    username = request.form['username']
+    password = request.form['password']
+    query = f"SELECT * FROM users WHERE username='{username}' AND password='{password}'"
+    result = db.execute(query)
+    return result
+
+# ❌ 間違い: Prepared statementで脆弱性が防がれる
+@app.route('/login', methods=['POST'])
+def login():
+    username = request.form['username']
+    password = request.form['password']
+    query = "SELECT * FROM users WHERE username=? AND password=?"
+    result = db.execute(query, (username, password))
+    return result
+```
+
+**フラグの取得方法:**
+- ✅ 脆弱性を突いてコマンド実行 → `cat /home/ctfuser/flag.txt`
+- ✅ SQLインジェクションでデータベース読み取り → `SELECT flag FROM flags`
+- ❌ `/flag` エンドポイントに直接アクセス
+
 **Dockerfile構文の注意:**
 - COPYコマンドで複数ファイルをコピーする場合、宛先はディレクトリで末尾に`/`が必要
   - ❌ `COPY app.py requirements.txt .` (エラー)

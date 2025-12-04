@@ -301,8 +301,13 @@ def cmd_auto_add(args):
     base_url = args.base_url
     use_subprocess = args.use_subprocess
     verbose = args.verbose
+    no_deploy = getattr(args, 'no_deploy', False)
     
-    print("[INFO] Starting auto-generation sequence...")
+    if no_deploy:
+        print("[INFO] Starting draft generation sequence (no-deploy mode)...")
+        print("[INFO] Mission will NOT be deployed to database")
+    else:
+        print("[INFO] Starting auto-generation sequence...")
     print("")
     
     mission_id = None
@@ -549,60 +554,77 @@ def cmd_auto_add(args):
                     print("[WARNING] Failed to regenerate writeup, using original", file=sys.stderr)
                     print("")
         
-        # Step 7: Deploy to Database
-        print("[7/8] Deploying to database...")
-        try:
-            uploader = MissionUploader(
-                supabase_url=supabase_url,
-                supabase_service_key=supabase_service_key
-            )
-            deploy_result = uploader.deploy(draft_file_path, validate=True)
+        # Step 7: Deploy to Database (skip if no-deploy mode)
+        if not no_deploy:
+            print("[7/8] Deploying to database...")
+            try:
+                uploader = MissionUploader(
+                    supabase_url=supabase_url,
+                    supabase_service_key=supabase_service_key
+                )
+                deploy_result = uploader.deploy(draft_file_path, validate=True)
+                
+                print(f"[7/8] ✓ Deployed to Database")
+                print(f"      Mission ID: {deploy_result['mission_id']}")
+                print("")
+            except Exception as deploy_error:
+                print(f"[ERROR] Database deployment failed: {deploy_error}", file=sys.stderr)
+                print("[WARNING] Mission JSON file is saved but not deployed to database", file=sys.stderr)
+                if draft_file_path:
+                    print(f"[INFO] You can manually deploy later using: python tools/cli.py deploy {draft_file_path}", file=sys.stderr)
+                raise  # Re-raise to trigger cleanup
             
-            print(f"[7/8] ✓ Deployed to Database")
-            print(f"      Mission ID: {deploy_result['mission_id']}")
+            # Step 8: Generate SNS Content (only if deployed)
+            print("[8/8] Generating SNS marketing content...")
+            sns_content = generate_from_file(
+                draft_file_path,
+                output_format="sns",
+                base_url=base_url,
+                api_key=api_key,
+                use_ai=True
+            )
+            
+            # Save SNS content to file
+            sns_file_path = Path(draft_file_path).parent / f"{mission_id}_sns.txt"
+            with open(sns_file_path, 'w', encoding='utf-8') as f:
+                f.write(sns_content)
+            
+            print(f"[8/8] ✓ SNS Content Generated")
+            print(f"      Saved to: {sns_file_path}")
             print("")
-        except Exception as deploy_error:
-            print(f"[ERROR] Database deployment failed: {deploy_error}", file=sys.stderr)
-            print("[WARNING] Mission JSON file is saved but not deployed to database", file=sys.stderr)
-            if draft_file_path:
-                print(f"[INFO] You can manually deploy later using: python tools/cli.py deploy {draft_file_path}", file=sys.stderr)
-            raise  # Re-raise to trigger cleanup
-        
-        # Step 7: Generate SNS Content
-        print("[8/8] Generating SNS marketing content...")
-        sns_content = generate_from_file(
-            draft_file_path,
-            output_format="sns",
-            base_url=base_url,
-            api_key=api_key,
-            use_ai=True
-        )
-        
-        # Save SNS content to file
-        sns_file_path = Path(draft_file_path).parent / f"{mission_id}_sns.txt"
-        with open(sns_file_path, 'w', encoding='utf-8') as f:
-            f.write(sns_content)
-        
-        print(f"[8/8] ✓ SNS Content Generated")
-        print(f"      Saved to: {sns_file_path}")
-        print("")
-        
-        # Display SNS content
-        print("=" * 60)
-        print("Generated SNS Post:")
-        print("=" * 60)
-        print(sns_content)
-        print("=" * 60)
-        print("")
-        
-        # Success message
-        print(f"[SUCCESS] Mission {mission_id} is live!")
-        print(f"  - Draft: {draft_file_path}")
-        print(f"  - Database: Deployed")
-        print(f"  - Docker Image: Built")
-        if container_url:
-            print(f"  - Test Container URL: {container_url}")
-        print(f"  - SNS Content: {sns_file_path}")
+            
+            # Display SNS content
+            print("=" * 60)
+            print("Generated SNS Post:")
+            print("=" * 60)
+            print(sns_content)
+            print("=" * 60)
+            print("")
+            
+            # Success message
+            print(f"[SUCCESS] Mission {mission_id} is live!")
+            print(f"  - Draft: {draft_file_path}")
+            print(f"  - Database: Deployed")
+            print(f"  - Docker Image: Built")
+            if container_url:
+                print(f"  - Test Container URL: {container_url}")
+            print(f"  - SNS Content: {sns_file_path}")
+        else:
+            # No-deploy mode: Draft only
+            print("[7/8] ⏭️  Skipping database deployment (no-deploy mode)")
+            print("[8/8] ⏭️  Skipping SNS content generation (no-deploy mode)")
+            print("")
+            print(f"[SUCCESS] Draft created: {mission_id}")
+            print(f"  - Status: DRAFT (Awaiting Review)")
+            print(f"  - Draft File: {draft_file_path}")
+            print(f"  - Docker Image: Built")
+            if container_url:
+                print(f"  - Test Container URL: {container_url}")
+            print("")
+            print("📋 Next Steps:")
+            print(f"  1. Review the mission by testing: {container_url if container_url else 'docker run -d -p 8080:8000 sol/mission-' + mission_id.lower().replace('sol-msn-', '') + ':latest'}")
+            print(f"  2. If approved, deploy: python tools/cli.py deploy {draft_file_path}")
+            print(f"  3. If rejected, delete: rm {draft_file_path} && docker rmi sol/mission-{mission_id.lower().replace('sol-msn-', '')}:latest")
         
         return 0
         
@@ -828,6 +850,11 @@ Examples:
         type=str,
         default=None,
         help='Path to source text file (RAG mode: generate challenge based on provided text)'
+    )
+    parser_auto_add.add_argument(
+        '--no-deploy',
+        action='store_true',
+        help='Generate draft only without deploying to database (for review workflow)'
     )
     
     # generate command
