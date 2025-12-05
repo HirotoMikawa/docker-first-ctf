@@ -21,20 +21,34 @@ python tools/cli.py auto-add --source inputs/sqli_basic.md --no-deploy
 
 ## 📚 利用可能なソーステキスト
 
-### 基礎レベル（難易度1-2）
+### 全10問 - Phase 1初期コンテンツセット
 
-| ファイル | カテゴリ | 難易度 | 説明 |
-|---------|----------|--------|------|
-| `sqli_basic.md` | SQLi | 1 | SQLインジェクション基礎、ログインバイパス |
-| `command_injection_basic.md` | RCE | 2 | OSコマンドインジェクション基礎 |
+| # | ファイル | カテゴリ | 難易度 | タイトル | 説明 |
+|---|---------|----------|--------|----------|------|
+| 01 | `sqli_basic.md` | SQLi | 1 | SQLインジェクション - ログインバイパス | Arasaka Corp従業員ポータル |
+| 02 | `02_rce_ping.md` | RCE | 2 | OSコマンドインジェクション - Ping | NetWatch監視ツール |
+| 03 | `03_traversal_file.md` | Path Traversal | 2 | パストラバーサル - ファイル閲覧 | Militech社内ドキュメント |
+| 04 | `04_xss_feedback.md` | XSS | 2 | XSS - フィードバックシステム | Phantom Protocolカスタマーサポート |
+| 05 | `05_idor_profile.md` | IDOR | 2 | IDOR - プロフィール閲覧 | Silverhand従業員情報システム |
+| 06 | `06_ssrf_proxy.md` | SSRF | 3 | SSRF - URLプレビュー | Biotechnica URLプレビューサービス |
+| 07 | `07_jwt_none.md` | JWT | 3 | JWT認証 - None Algorithm | Night City API認証システム |
+| 08 | `08_docker_env.md` | Misc | 2 | Docker環境変数 - デバッグ情報 | Trauma Team監視システム |
+| 09 | `09_crypto_rsa.md` | Crypto | 3 | RSA暗号 - 弱い鍵 | Kang Tao暗号化通信 |
+| 10 | `10_logic_shop.md` | Logic | 3 | ロジックエラー - ショップ | Afterlife闇市マーケット |
 
-### 中級レベル（難易度3）
+### 難易度分布
 
-（今後追加予定）
+- **難易度1**: 1問（10%）
+- **難易度2**: 5問（50%）
+- **難易度3**: 4問（40%）
 
-### 上級レベル（難易度4-5）
+**合計**: 10問
 
-（今後追加予定）
+### カテゴリ分布
+
+- **Web**: 8問（SQLi, RCE, Path Traversal, XSS, IDOR, SSRF, JWT, Logic）
+- **Misc**: 1問（Docker Env）
+- **Crypto**: 1問（RSA）
 
 ---
 
